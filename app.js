@@ -34,7 +34,9 @@ function initMap() {
         zoom: 2,
         minZoom: 1,
         maxZoom: 8,
-        attributionControl: true
+        attributionControl: true,
+        maxBounds: [[-90, -180], [90, 180]],
+        maxBoundsViscosity: 1.0
     });
 
     map.attributionControl.addAttribution('Tiles: NASA/USGS');
@@ -58,13 +60,18 @@ async function loadPlanet(planetKey) {
     });
     clearMarkers();
 
-    // Add new tile layer
-    L.tileLayer(config.wmts_url, {
-        minZoom: config.minZoom,
-        maxZoom: config.maxZoom,
-        tms: false,
-        attribution: `${config.name} - NASA/USGS`
-    }).addTo(map);
+    // Add new tile layer if available
+    if (config.wmts_url) {
+        L.tileLayer(config.wmts_url, {
+            minZoom: config.minZoom,
+            maxZoom: config.maxZoom,
+            tms: false,
+            attribution: `${config.name} - NASA/USGS`
+        }).addTo(map);
+    } else {
+        // Show message that tiles are unavailable
+        console.warn(`Tile imagery unavailable for ${config.name}, but features will still load`);
+    }
 
     // Reset view
     map.setView(config.center, 2);
@@ -76,14 +83,112 @@ async function loadPlanet(planetKey) {
     await loadFeatures(config.usgs_name);
 }
 
-// Load features from USGS API + famous features database
+// Parse KML to extract features
+function parseKML(kmlText) {
+    const parser = new DOMParser();
+    const kmlDoc = parser.parseFromString(kmlText, 'text/xml');
+
+    // Check for parsing errors
+    const parserError = kmlDoc.getElementsByTagName('parsererror');
+    if (parserError.length > 0) {
+        console.error('KML parsing error:', parserError[0].textContent);
+        return [];
+    }
+
+    const placemarks = kmlDoc.getElementsByTagName('Placemark');
+    console.log(`Found ${placemarks.length} Placemarks in KML`);
+
+    const parsedFeatures = [];
+    let skippedCount = 0;
+
+    for (let placemark of placemarks) {
+        const nameEl = placemark.getElementsByTagName('name')[0];
+        const coordsEl = placemark.getElementsByTagName('coordinates')[0];
+
+        if (!nameEl || !coordsEl) {
+            skippedCount++;
+            continue;
+        }
+
+        const name = nameEl.textContent.trim();
+        const coordsText = coordsEl.textContent.trim();
+        const coords = coordsText.split(/[\s,]+/).filter(c => c.length > 0);
+
+        if (coords.length < 2) {
+            console.warn(`Invalid coordinates for ${name}:`, coordsText);
+            skippedCount++;
+            continue;
+        }
+
+        const lon = parseFloat(coords[0]);
+        const lat = parseFloat(coords[1]);
+
+        if (isNaN(lon) || isNaN(lat)) {
+            console.warn(`NaN coordinates for ${name}: lon=${coords[0]}, lat=${coords[1]}`);
+            skippedCount++;
+            continue;
+        }
+
+        // Extract extended data
+        const extendedData = placemark.getElementsByTagName('ExtendedData')[0];
+        let featureType = 'Unknown';
+        let diameter = null;
+        let origin = null;
+        let approvalDate = null;
+        let ethnicity = null;
+        let code = null;
+
+        if (extendedData) {
+            const simpleData = extendedData.getElementsByTagName('SimpleData');
+            for (let data of simpleData) {
+                const attrName = data.getAttribute('name');
+                const value = data.textContent.trim();
+
+                if (attrName === 'type') {
+                    featureType = value;
+                } else if (attrName === 'diameter') {
+                    diameter = parseFloat(value);
+                } else if (attrName === 'origin') {
+                    origin = value;
+                } else if (attrName === 'approvaldt') {
+                    approvalDate = value;
+                } else if (attrName === 'ethnicity') {
+                    ethnicity = value;
+                } else if (attrName === 'code') {
+                    code = value;
+                }
+            }
+        }
+
+        parsedFeatures.push({
+            properties: {
+                name: name,
+                featureType: featureType,
+                diameter: diameter,
+                origin: origin,
+                approval_date: approvalDate,
+                ethnicity: ethnicity,
+                code: code,
+                source: 'kmz'
+            },
+            geometry: {
+                coordinates: [lon, lat]
+            }
+        });
+    }
+
+    console.log(`Successfully parsed ${parsedFeatures.length} features, skipped ${skippedCount}`);
+    return parsedFeatures;
+}
+
+// Load features from USGS KMZ file
 async function loadFeatures(planetName) {
     const sidebar = document.getElementById('featureList');
-    sidebar.innerHTML = '<div class="loading">Loading features...</div>';
+    sidebar.innerHTML = '<div class="loading">Loading features from USGS...</div>';
 
     console.log(`Loading features for ${planetName}`);
 
-    // Start with famous features as a base
+    // Get famous features as fallback
     let famousFeatures = [];
     if (FAMOUS_FEATURES && FAMOUS_FEATURES[planetName]) {
         famousFeatures = FAMOUS_FEATURES[planetName].map(f => ({
@@ -97,54 +202,73 @@ async function loadFeatures(planetName) {
         }));
     }
 
-    // Try to fetch from USGS API
-    try {
-        const url = `https://planetarynames.wr.usgs.gov/SearchResults?target=${encodeURIComponent(planetName)}&displayType=JSON`;
-        console.log(`Fetching from USGS API: ${url}`);
+    // Try to fetch KMZ from USGS
+    const kmzUrl = currentPlanet?.kmz_url;
 
-        const response = await fetch(url);
+    if (!kmzUrl) {
+        console.warn('No KMZ URL configured for this planet, using famous features');
+        features = famousFeatures;
+        sidebar.innerHTML = `<div class="loading">Loaded ${features.length} features. Click a tile to view features in that area, or search above.</div>`;
+        return;
+    }
+
+    try {
+        console.log(`Fetching KMZ from: ${kmzUrl}`);
+        sidebar.innerHTML = '<div class="loading">Downloading nomenclature data...</div>';
+
+        const response = await fetch(kmzUrl, {
+            mode: 'cors',
+            credentials: 'omit'
+        });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-        const text = await response.text();
-        const data = JSON.parse(text);
+        const blob = await response.blob();
+        console.log(`Downloaded ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
 
-        console.log('USGS API response:', data);
+        sidebar.innerHTML = '<div class="loading">Extracting and parsing data...</div>';
 
-        let usgsFeatures = [];
-        if (data && data.features && Array.isArray(data.features)) {
-            usgsFeatures = data.features;
-        } else if (Array.isArray(data)) {
-            usgsFeatures = data;
+        // Unzip KMZ using JSZip
+        const zip = await JSZip.loadAsync(blob);
+
+        // Find the KML file (usually doc.kml)
+        let kmlFile = null;
+        for (let filename in zip.files) {
+            if (filename.endsWith('.kml')) {
+                kmlFile = zip.files[filename];
+                break;
+            }
         }
 
-        // Filter valid USGS features
-        usgsFeatures = usgsFeatures.filter(f =>
-            f.geometry &&
-            f.geometry.coordinates &&
-            Array.isArray(f.geometry.coordinates) &&
-            f.geometry.coordinates.length >= 2
-        ).map(f => ({
-            ...f,
-            properties: {
-                ...f.properties,
-                source: 'usgs'
-            }
-        }));
+        if (!kmlFile) throw new Error('No KML file found in KMZ');
 
-        console.log(`Loaded ${usgsFeatures.length} features from USGS`);
+        const kmlText = await kmlFile.async('text');
+        console.log('Parsing KML...');
 
-        // Combine: USGS features + famous features (avoid duplicates by name)
-        const usgsNames = new Set(usgsFeatures.map(f => f.properties.name));
+        const kmzFeatures = parseKML(kmlText);
+        console.log(`Parsed ${kmzFeatures.length} features from KMZ`);
+
+        // Log sample features to verify coordinates
+        if (kmzFeatures.length > 0) {
+            console.log('Sample features:', kmzFeatures.slice(0, 3).map(f => ({
+                name: f.properties.name,
+                type: f.properties.featureType,
+                lon: f.geometry.coordinates[0],
+                lat: f.geometry.coordinates[1]
+            })));
+        }
+
+        // Combine KMZ features with famous features (prioritize KMZ, add unique famous)
+        const kmzNames = new Set(kmzFeatures.map(f => f.properties.name));
         const uniqueFamous = famousFeatures.filter(f =>
-            !usgsNames.has(f.properties.name)
+            !kmzNames.has(f.properties.name)
         );
 
-        features = [...usgsFeatures, ...uniqueFamous];
+        features = [...kmzFeatures, ...uniqueFamous];
 
-        console.log(`Total features: ${features.length} (${usgsFeatures.length} USGS + ${uniqueFamous.length} famous)`);
+        console.log(`Total features: ${features.length} (${kmzFeatures.length} from KMZ + ${uniqueFamous.length} famous)`);
 
     } catch (error) {
-        console.warn('USGS API failed, using famous features only:', error);
+        console.error('Failed to load KMZ, using famous features:', error);
         features = famousFeatures;
         console.log(`Using ${features.length} famous features as fallback`);
     }
@@ -156,7 +280,7 @@ async function loadFeatures(planetName) {
         return nameA.localeCompare(nameB);
     });
 
-    // Show message instead of displaying all features
+    // Show message
     sidebar.innerHTML = `<div class="loading">Loaded ${features.length} features. Click a tile to view features in that area, or search above.</div>`;
 }
 
@@ -479,14 +603,31 @@ function displayTileInfo(tile, bounds) {
 // Filter features by tile bounds
 function filterFeaturesByTile(bounds) {
     console.log(`Filtering features within tile bounds:`, bounds);
+    console.log(`Sample feature coordinates (first 5):`, features.slice(0, 5).map(f => ({
+        name: f.properties.name,
+        coords: f.geometry.coordinates
+    })));
 
     const filtered = features.filter(f => {
         if (!f.geometry || !f.geometry.coordinates) return false;
 
-        const [lon, lat] = f.geometry.coordinates;
+        let [lon, lat] = f.geometry.coordinates;
 
-        return lat >= bounds.south && lat <= bounds.north &&
-               lon >= bounds.west && lon <= bounds.east;
+        // Check latitude (straightforward)
+        const latMatch = lat >= bounds.south && lat <= bounds.north;
+
+        // Check longitude (handle wrapping around 180/-180)
+        let lonMatch;
+        if (bounds.west <= bounds.east) {
+            // Normal case: west to east doesn't cross antimeridian
+            lonMatch = lon >= bounds.west && lon <= bounds.east;
+        } else {
+            // Crosses antimeridian: west is > 0, east is < 0
+            // Feature is in range if: lon >= west OR lon <= east
+            lonMatch = lon >= bounds.west || lon <= bounds.east;
+        }
+
+        return latMatch && lonMatch;
     });
 
     console.log(`Found ${filtered.length} features within tile (out of ${features.length} total)`);
