@@ -13,7 +13,6 @@ The web app is created with Python code, HTML/CSS, and APIs. We took a creative 
 
 4. Pulled relevant images from NASA Image API to show additional views of the feature from other satellite images. 
 
-upload_image.16:48:53.482397
 All together, the impact of this interactive experience to encourage exploration and learning beyond the surface map (pun intended). 
 
 We did have to consider that some APIs wouldn't work because of issues with NASA websites at the time and had to adjust accordingly. 
