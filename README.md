@@ -1,25 +1,53 @@
 # embiggen-your-eyes
-Do you ever see a satellite image of space and wish you could learn exactly what is in it? NASALinks provides an easy-to-use interface for you to explore maps of celestials bodies and learn directly from the source.
+Team Incognito Mode's repository for the 2025 NASA Space Apps Challenge!
 
-We took the next step of exploring satellite images from just viewing the map, to making it full interactive learning experience. Google Maps has a "space" feature that simply tells shows you a 3D map of a celestial body and where a feature may be, but we made NASALink as a tool to make the learning experience truly interactive.
+## Planetary Map Explorer
 
-The web app is created with Python code, HTML/CSS, and APIs. We took a creative approach to connecting the data together to tell a story about the selected feature instead of focusing on just one.
+A dynamic planetary map system with feature highlighting, tile-based filtering, and USGS nomenclature data.
 
-1. Took the satellite map tiles from NASA Space Treks and loaded it in with coordinates.
+## How to Run
 
-2. Overlayed and matched the coordinates of known geological features for each celestial body's using NASA USGS nomenclature data. Each feature has basic data such as name, type, coordinates, size, origin of name, and approval date.
+⚠️ **IMPORTANT**: The app needs to be served from a web server (not opened directly as `file://`) to avoid CORS issues when fetching KMZ data.
 
-3. Used customized data from multiple sources to construct a timeline of events for the feature sourced from NASA USGS data, NASA mission reports, and Wikipedia API.
+### Option 1: Python HTTP Server (Recommended)
 
-4. Pulled relevant images from NASA Image API to show additional views of the feature from other satellite images. 
+```bash
+cd /Users/kxclly/Documents/Coding/NASA_Space_App
+python3 -m http.server 8000
+```
 
-All together, the impact of this interactive experience to encourage exploration and learning beyond the surface map (pun intended). 
+Then open: **http://localhost:8000**
 
-We did have to consider that some APIs wouldn't work because of issues with NASA websites at the time and had to adjust accordingly. 
+### Option 2: Node.js HTTP Server
 
-Sources:
-NASA Trek (WMTS)
-NASA Image and Video Library API
-NASA Lunar Reconnaissance Orbiter Camera
-Wikipedia API
-USGS APIs
+```bash
+cd /Users/kxclly/Documents/Coding/NASA_Space_App
+npx http-server -p 8000
+```
+
+Then open: **http://localhost:8000**
+
+### Option 3: VS Code Live Server
+
+1. Install "Live Server" extension in VS Code
+2. Right-click `index.html` → "Open with Live Server"
+
+## Features
+
+- **Planetary Maps**: Moon, Mars, Mercury, Vesta
+- **Tile-based Feature Loading**: Click any tile to see features within that coordinate range
+- **USGS Data**: Automatically downloads thousands of features from USGS nomenclature database
+- **Search**: Search features by name or type
+- **Hierarchical Regions**: Shows large geographic features (maria, plains, etc.) with boundaries
+- **Dynamic Filtering**: Filters features by tile coordinates in real-time
+
+## Troubleshooting
+
+**Issue: "Failed to load KMZ"**
+- You're opening the file directly (`file://` protocol)
+- Solution: Use one of the server options above
+
+**Issue: "No features found in this tile"**
+- The selected tile area may genuinely have no named features
+- Try a different area or use the search function
+- Check console for debugging info

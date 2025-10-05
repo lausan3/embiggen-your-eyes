@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm ls:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npm run lint)",
+      "Bash(curl:*)",
+      "Bash(node:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(pkill:*)",
+      "Read(//var/folders/b_/ct8tz3pd6hl3fk1_xc71mdvw0000gn/T/TemporaryItems/NSIRD_screencaptureui_SnaDWp/**)",
+      "Read(//var/folders/b_/ct8tz3pd6hl3fk1_xc71mdvw0000gn/T/TemporaryItems/NSIRD_screencaptureui_iLc651/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
