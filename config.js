@@ -1,4 +1,5 @@
 // Planetary configuration with WMTS tile services
+// Moon and Mars have working Trek imagery; Europa and Io have nomenclature data only
 const PLANETARY_CONFIG = {
     Moon: {
         name: "Moon",
@@ -7,7 +8,8 @@ const PLANETARY_CONFIG = {
         center: [0, 0],
         minZoom: 0,
         maxZoom: 8,
-        usgs_name: "Moon"
+        usgs_name: "MOON",
+        kmz_url: "data/MOON_nomenclature_center_pts.kmz"
     },
     Mars: {
         name: "Mars",
@@ -16,25 +18,28 @@ const PLANETARY_CONFIG = {
         center: [0, 0],
         minZoom: 0,
         maxZoom: 7,
-        usgs_name: "Mars"
+        usgs_name: "MARS",
+        kmz_url: "data/MARS_nomenclature_center_pts.kmz"
     },
-    Mercury: {
-        name: "Mercury",
-        wmts_url: "https://trek.nasa.gov/tiles/Mercury/EQ/Mercury_MESSENGER_MDIS_Basemap_EnhancedColor_Equirectangular_928m/1.0.0//default/default028mm/{z}/{y}/{x}.jpg",
-        projection: "EPSG:4326",
-        center: [0, 0],
-        minZoom: 0,
-        maxZoom: 6,
-        usgs_name: "Mercury"
-    },
-    Vesta: {
-        name: "Vesta",
-        wmts_url: "https://trek.nasa.gov/tiles/Vesta/EQ/Vesta_Dawn_FC_Mosaic_Global_74ppd/1.0.0//default/default028mm/{z}/{y}/{x}.jpg",
+    Europa: {
+        name: "Europa",
+        wmts_url: "https://trek.nasa.gov/tiles/Europa/EQ/20150218_europa_global_map_20000x10000/1.0.0/default/default028mm/{z}/{y}/{x}.png",
         projection: "EPSG:4326",
         center: [0, 0],
         minZoom: 0,
         maxZoom: 5,
-        usgs_name: "Vesta"
+        usgs_name: "Europa",
+        kmz_url: "data/EUROPA_nomenclature_center_pts.kmz"
+    },
+    Io: {
+        name: "Io",
+        wmts_url: "https://trek.nasa.gov/tiles/Io/EQ/Io_GalileoSSI_Voyager_Global_Mosaic_ClrMerge_1km/1.0.0/default/default028mm/{z}/{y}/{x}.png",
+        projection: "EPSG:4326",
+        center: [0, 0],
+        minZoom: 0,
+        maxZoom: 5,
+        usgs_name: "Io",
+        kmz_url: "data/IO_nomenclature_center_pts.kmz"
     }
 };
 

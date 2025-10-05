@@ -1,0 +1,499 @@
+// Structured timeline data for planetary features
+// All dates in years for consistency (not millions)
+// 0 = Present, 4500000000 = 4.5 billion years ago
+// Sources: USGS Geologic Maps, NASA mission data, peer-reviewed publications
+
+const TIMELINE_DATA = {
+    'MARS': {
+        'Olympus Mons': [
+            {
+                phase: 'Tharsis Rise',
+                years: 3700000000, // 3.7 Bya (Late Noachian)
+                description: 'Tharsis volcanic province begins forming, creating regional uplift',
+                source: 'Tanaka et al. 2014 - USGS Geologic Map of Mars'
+            },
+            {
+                phase: 'Shield Growth',
+                years: 3000000000, // 3.0 Bya (Hesperian)
+                description: 'Main shield structure built through thousands of basaltic lava flows',
+                source: 'Neukum et al. 2004 - Crater chronology'
+            },
+            {
+                phase: 'Caldera Development',
+                years: 350000000, // 350 Mya (Middle Amazonian)
+                description: 'Summit caldera complex forms through magma chamber collapse',
+                source: 'Isherwood et al. 2013 - JGR Planets'
+            },
+            {
+                phase: 'Recent Volcanism',
+                years: 115000000, // 115 Mya (Late Amazonian)
+                description: 'Youngest lava flows on flanks, possibly geologically active',
+                source: 'Neukum et al. 2004 - ESA Mars Express'
+            },
+            {
+                phase: 'Present Day',
+                years: 0,
+                description: '21.9 km elevation, 600 km diameter - solar system\'s largest volcano',
+                source: 'MOLA topography - Mars Global Surveyor'
+            }
+        ],
+        'Valles Marineris': [
+            {
+                phase: 'Tharsis Uplift',
+                years: 3700000000, // 3.7 Bya
+                description: 'Massive Tharsis bulge creates extensional stress fractures in crust',
+                source: 'Tanaka et al. 2014 - USGS'
+            },
+            {
+                phase: 'Rift Opening',
+                years: 3500000000, // 3.5 Bya (Noachian-Hesperian)
+                description: 'Tectonic rifting creates initial canyon structure',
+                source: 'Andrews-Hanna 2012 - Tectonic models'
+            },
+            {
+                phase: 'Erosional Widening',
+                years: 3200000000, // 3.2 Bya (Hesperian)
+                description: 'Water, landslides, and wind erosion widen and deepen canyons',
+                source: 'Quantin et al. 2005 - Canyon chronology'
+            },
+            {
+                phase: 'Interior Deposits',
+                years: 2900000000, // 2.9 Bya (Early Amazonian)
+                description: 'Layered sedimentary deposits accumulate on canyon floors',
+                source: 'MRO HiRISE observations'
+            },
+            {
+                phase: 'Present Day',
+                years: 0,
+                description: '4000 km long, 200 km wide, up to 7 km deep canyon system',
+                source: 'Mars Express HRSC - ESA'
+            }
+        ],
+        'Gale Crater': [
+            {
+                phase: 'Impact Formation',
+                years: 3800000000, // 3.8 Bya (Late Noachian)
+                description: 'Asteroid impact creates 154 km diameter crater',
+                source: 'Le Deit et al. 2013 - Crater dating'
+            },
+            {
+                phase: 'Lake Period',
+                years: 3700000000, // 3.7 Bya
+                description: 'Crater hosts long-lived lake with habitable conditions',
+                source: 'Grotzinger et al. 2015 - Curiosity findings'
+            },
+            {
+                phase: 'Sediment Accumulation',
+                years: 3500000000, // 3.5 Bya
+                description: 'Mudstone and sandstone layers deposited in lake environment',
+                source: 'Stack et al. 2019 - Stratigraphy study'
+            },
+            {
+                phase: 'Aeolis Mons Formation',
+                years: 3300000000, // 3.3 Bya
+                description: 'Mount Sharp (5.5 km mound) built from layered sediments',
+                source: 'Milliken et al. 2010 - Spectral analysis'
+            },
+            {
+                phase: 'Wind Erosion',
+                years: 3000000000, // 3.0 Bya to present
+                description: 'Aeolian processes sculpt modern crater morphology',
+                source: 'Anderson & Bell 2010'
+            },
+            {
+                phase: 'Curiosity Exploration',
+                years: 0,
+                description: 'MSL rover investigating ancient habitability since 2012',
+                source: 'NASA JPL - Curiosity mission'
+            }
+        ],
+        'Hellas Planitia': [
+            {
+                phase: 'Mega-Impact',
+                years: 4100000000, // 4.1 Bya (Pre-Noachian)
+                description: 'Asteroid creates largest visible impact basin in solar system',
+                source: 'Werner 2008 - Impact chronology'
+            },
+            {
+                phase: 'Basin Modification',
+                years: 3900000000, // 3.9 Bya
+                description: 'Secondary impacts and erosion modify basin structure',
+                source: 'Tanaka et al. 2014'
+            },
+            {
+                phase: 'Volcanic Filling',
+                years: 3700000000, // 3.7 Bya (Noachian)
+                description: 'Lava flows partially fill basin floor',
+                source: 'Williams et al. 2009 - Volcanic units'
+            },
+            {
+                phase: 'Glacial Activity',
+                years: 2100000000, // 2.1 Bya (Amazonian)
+                description: 'Ice-related features suggest past glaciation',
+                source: 'Kargel & Strom 1992'
+            },
+            {
+                phase: 'Present Day',
+                years: 0,
+                description: '2,300 km wide, 9 km deep - lowest elevation on Mars (-7,152 m)',
+                source: 'MOLA - Mars Global Surveyor'
+            }
+        ],
+        'Jezero Crater': [
+            {
+                phase: 'Impact Formation',
+                years: 3900000000, // 3.9 Bya
+                description: 'Impact creates 49 km diameter crater',
+                source: 'Fassett & Head 2005'
+            },
+            {
+                phase: 'River Delta',
+                years: 3700000000, // 3.7 Bya
+                description: 'Ancient river system deposits delta sediments in crater lake',
+                source: 'Goudge et al. 2015'
+            },
+            {
+                phase: 'Lake Desiccation',
+                years: 3500000000, // 3.5 Bya
+                description: 'Climate change causes lake to dry up',
+                source: 'Schon et al. 2012'
+            },
+            {
+                phase: 'Perseverance Landing',
+                years: 0,
+                description: 'Mars 2020 rover searching for ancient biosignatures since 2021',
+                source: 'NASA JPL - Mars 2020 mission'
+            }
+        ]
+    },
+    'MOON': {
+        'Mare Tranquillitatis': [
+            {
+                phase: 'Basin Impact',
+                years: 3900000000, // 3.9 Bya (Late Heavy Bombardment)
+                description: 'Large impact excavates Tranquillitatis basin',
+                source: 'Stöffler & Ryder 2001'
+            },
+            {
+                phase: 'Mare Flooding',
+                years: 3700000000, // 3.7 Bya
+                description: 'Basaltic lava erupts from lunar mantle, flooding basin',
+                source: 'Hiesinger et al. 2011 - Crater chronology'
+            },
+            {
+                phase: 'Late Volcanism',
+                years: 3500000000, // 3.5 Bya
+                description: 'Final volcanic flows complete mare surface',
+                source: 'Apollo 11 sample dating'
+            },
+            {
+                phase: 'Apollo 11 Landing',
+                years: 0,
+                description: 'First human lunar landing site (July 20, 1969)',
+                source: 'NASA Apollo program'
+            }
+        ],
+        'Tycho Crater': [
+            {
+                phase: 'Impact Event',
+                years: 108000000, // 108 Mya (Copernican period)
+                description: 'High-velocity impact creates 85 km crater with bright rays',
+                source: 'Arvidson et al. 1976 - Crater dating'
+            },
+            {
+                phase: 'Ray System',
+                years: 108000000, // Same event
+                description: 'Ejecta rays extend 1500 km across lunar surface',
+                source: 'LRO observations'
+            },
+            {
+                phase: 'Central Peak',
+                years: 108000000, // Same event
+                description: 'Rebound creates 2 km high central peak complex',
+                source: 'Impact crater mechanics'
+            },
+            {
+                phase: 'Present Day',
+                years: 0,
+                description: 'One of brightest craters on Moon, 4.8 km deep',
+                source: 'Lunar Reconnaissance Orbiter'
+            }
+        ],
+        'Copernicus Crater': [
+            {
+                phase: 'Impact Formation',
+                years: 800000000, // 800 Mya (Copernican)
+                description: 'Asteroid impact creates 93 km complex crater',
+                source: 'Bogard et al. 1994 - Apollo samples'
+            },
+            {
+                phase: 'Terrace Formation',
+                years: 800000000, // Same event
+                description: 'Crater walls slump creating terraced inner structure',
+                source: 'Pike 1977 - Crater morphology'
+            },
+            {
+                phase: 'Present Day',
+                years: 0,
+                description: 'Type example of Copernican-age crater, prominent ray system',
+                source: 'LRO imaging'
+            }
+        ],
+        'South Pole-Aitken Basin': [
+            {
+                phase: 'Giant Impact',
+                years: 4200000000, // 4.2 Bya (Pre-Nectarian)
+                description: 'Massive impact creates largest and oldest lunar basin',
+                source: 'Garrick-Bethell & Zuber 2009'
+            },
+            {
+                phase: 'Mantle Exposure',
+                years: 4200000000, // Same event
+                description: 'Impact excavates through crust, exposing lunar mantle',
+                source: 'Pieters et al. 2001 - Spectroscopy'
+            },
+            {
+                phase: 'Present Day',
+                years: 0,
+                description: '2,500 km wide, 8 km deep - largest impact basin in solar system',
+                source: 'LRO LOLA topography'
+            }
+        ]
+    },
+    'MERCURY': {
+        'Caloris Basin': [
+            {
+                phase: 'Mega-Impact',
+                years: 3900000000, // 3.9 Bya
+                description: 'Asteroid impact creates 1,550 km basin, one of largest in solar system',
+                source: 'Fassett et al. 2009 - MESSENGER'
+            },
+            {
+                phase: 'Antipodal Terrain',
+                years: 3900000000, // Same event
+                description: 'Seismic waves converge on opposite side, creating weird terrain',
+                source: 'Schultz & Gault 1975'
+            },
+            {
+                phase: 'Smooth Plains',
+                years: 3800000000, // 3.8 Bya
+                description: 'Volcanic lava floods basin floor creating smooth plains',
+                source: 'Denevi et al. 2013 - MESSENGER'
+            },
+            {
+                phase: 'Present Day',
+                years: 0,
+                description: 'Well-preserved multi-ring impact basin',
+                source: 'MESSENGER orbital data'
+            }
+        ]
+    },
+    'VENUS': {
+        'Maxwell Montes': [
+            {
+                phase: 'Global Resurfacing',
+                years: 500000000, // 500 Mya
+                description: 'Catastrophic volcanic event resurfaces entire planet',
+                source: 'McKinnon et al. 1997 - Crater statistics'
+            },
+            {
+                phase: 'Mountain Building',
+                years: 300000000, // 300 Mya (estimated)
+                description: 'Tectonic compression creates highest mountain on Venus',
+                source: 'Ivanov & Head 2011'
+            },
+            {
+                phase: 'Present Day',
+                years: 0,
+                description: '11 km elevation - highest point on Venus',
+                source: 'Magellan radar altimetry'
+            }
+        ]
+    }
+};
+        'Mount Everest': [
+            {
+                phase: 'Tethys Ocean',
+                years: 250000000, // 250 Mya
+                description: 'Seafloor sediments deposited in ancient Tethys Ocean',
+                source: 'Geological studies of Himalayan formation'
+            },
+            {
+                phase: 'India-Asia Collision',
+                years: 50000000, // 50 Mya
+                description: 'Indian plate collides with Eurasian plate, beginning Himalayan orogeny',
+                source: 'Plate tectonic reconstruction'
+            },
+            {
+                phase: 'Rapid Uplift',
+                years: 20000000, // 20 Mya
+                description: 'Accelerated uplift creates highest peaks on Earth',
+                source: 'Thermochronology dating'
+            },
+            {
+                phase: 'Glaciation',
+                years: 2000000, // 2 Mya
+                description: 'Pleistocene glaciers carve modern summit morphology',
+                source: 'Glacial chronology'
+            },
+            {
+                phase: 'First Summit',
+                years: 72, // 1953 (72 years ago from 2025)
+                description: 'Edmund Hillary and Tenzing Norgay reach summit May 29, 1953',
+                source: 'Historical record'
+            },
+            {
+                phase: 'Present Day',
+                years: 0,
+                description: '8,849 m elevation - Earth\'s highest point, still rising ~4mm/year',
+                source: 'GPS measurements'
+            }
+        ],
+        'Grand Canyon': [
+            {
+                phase: 'Rock Formation',
+                years: 1800000000, // 1.8 Bya
+                description: 'Vishnu Schist basement rocks form through metamorphism',
+                source: 'Radiometric dating of canyon rocks'
+            },
+            {
+                phase: 'Sediment Deposition',
+                years: 500000000, // 500 Mya
+                description: 'Marine sediments deposited during Paleozoic seas',
+                source: 'Stratigraphic analysis'
+            },
+            {
+                phase: 'Colorado Plateau Uplift',
+                years: 70000000, // 70 Mya
+                description: 'Laramide orogeny uplifts Colorado Plateau',
+                source: 'Structural geology'
+            },
+            {
+                phase: 'Canyon Carving Begins',
+                years: 6000000, // 6 Mya
+                description: 'Colorado River begins cutting through uplifted plateau',
+                source: 'Cosmogenic dating of canyon surfaces'
+            },
+            {
+                phase: 'Modern Canyon',
+                years: 1000000, // 1 Mya
+                description: 'Canyon reaches approximately modern depth',
+                source: 'Erosion rate studies'
+            },
+            {
+                phase: 'Present Day',
+                years: 0,
+                description: '446 km long, up to 29 km wide, 1.8 km deep - actively eroding',
+                source: 'USGS topographic surveys'
+            }
+        ],
+        'Yellowstone Caldera': [
+            {
+                phase: 'Hotspot Formation',
+                years: 17000000, // 17 Mya
+                description: 'Yellowstone hotspot begins volcanic track across North America',
+                source: 'Volcanic chronology'
+            },
+            {
+                phase: 'Huckleberry Ridge Eruption',
+                years: 2100000, // 2.1 Mya
+                description: 'First major caldera-forming eruption (2,500 km³ of material)',
+                source: 'Ar-Ar dating of volcanic deposits'
+            },
+            {
+                phase: 'Mesa Falls Eruption',
+                years: 1300000, // 1.3 Mya
+                description: 'Second major eruption creates Island Park Caldera',
+                source: 'Volcanic stratigraphy'
+            },
+            {
+                phase: 'Lava Creek Eruption',
+                years: 640000, // 640 Kya
+                description: 'Most recent supereruption forms current caldera (1,000 km³)',
+                source: 'K-Ar dating'
+            },
+            {
+                phase: 'Recent Lava Flows',
+                years: 70000, // 70 Kya
+                description: 'Post-caldera rhyolite flows fill caldera floor',
+                source: 'Radiocarbon dating'
+            },
+            {
+                phase: 'Present Day',
+                years: 0,
+                description: 'Active geothermal system, ground deformation monitored, ~630 year cycle',
+                source: 'USGS Yellowstone Volcano Observatory'
+            }
+        ],
+        'Hawaii (Mauna Loa)': [
+            {
+                phase: 'Hotspot Initiation',
+                years: 70000000, // 70 Mya
+                description: 'Hawaiian hotspot begins creating volcanic islands',
+                source: 'Age progression of Hawaiian chain'
+            },
+            {
+                phase: 'Mauna Loa Emerges',
+                years: 700000, // 700 Kya
+                description: 'Volcano breaks ocean surface, begins subaerial growth',
+                source: 'K-Ar dating of subaerial lavas'
+            },
+            {
+                phase: 'Shield Building',
+                years: 400000, // 400 Kya
+                description: 'Rapid growth phase constructs main shield structure',
+                source: 'Stratigraphic studies'
+            },
+            {
+                phase: 'Historical Eruptions',
+                years: 200, // ~1800s
+                description: 'Documented eruptions since Western contact in 1778',
+                source: 'Historical records'
+            },
+            {
+                phase: 'Recent Eruption',
+                years: 2, // 2022
+                description: 'Major eruption November 2022, lava flows threaten Hilo',
+                source: 'USGS Hawaiian Volcano Observatory'
+            },
+            {
+                phase: 'Present Day',
+                years: 0,
+                description: 'Earth\'s largest active volcano, frequent eruptions, closely monitored',
+                source: 'Real-time monitoring - HVO'
+            }
+        ],
+        'Iceland': [
+            {
+                phase: 'Rift Opening',
+                years: 20000000, // 20 Mya
+                description: 'Mid-Atlantic Ridge begins forming Iceland hotspot',
+                source: 'Plate tectonic models'
+            },
+            {
+                phase: 'Island Formation',
+                years: 16000000, // 16 Mya
+                description: 'Volcanic activity builds island above sea level',
+                source: 'Basalt dating'
+            },
+            {
+                phase: 'Glaciation',
+                years: 2500000, // 2.5 Mya
+                description: 'Ice ages create distinctive volcanic-glacial landforms',
+                source: 'Glacial geology'
+            },
+            {
+                phase: 'Settlement',
+                years: 1145, // 874 CE
+                description: 'Norse settlers arrive, begin documenting eruptions',
+                source: 'Historical sagas'
+            },
+            {
+                phase: 'Present Day',
+                years: 0,
+                description: 'Active spreading center, ~20 active volcanic systems, frequent eruptions',
+                source: 'Icelandic Meteorological Office'
+            }
+        ]
+    }
+};
