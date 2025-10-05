@@ -15,7 +15,7 @@ const inter = Inter({
 })
 
 export const metadata = {
-  title: "Planetary Explorer",
+  title: "NASALink",
   description: "Interactive map explorer for celestial bodies",
 }
 

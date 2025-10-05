@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useMemo, useCallback, useEffect } from "react"
+import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import dynamic from "next/dynamic"
-import { Search, X, MapPin, Layers, Target, GitCompare, Clock, Zap } from "lucide-react"
+import { Search, X, MapPin, Layers, Target, GitCompare, Clock, Zap, Globe, Map } from "lucide-react"
 import { FAMOUS_FEATURES } from "@/lib/famous-features"
 import { TIMELINE_DATA } from "@/lib/timeline-data"
 import { FeatureAnalyzer } from "@/lib/feature-analyzer"
@@ -19,6 +19,15 @@ const Globe3D = dynamic(() => import("@/components/globe-3d"), {
   loading: () => (
     <div className="flex items-center justify-center h-full" style={{ background: "#0a0a0a" }}>
       <div style={{ color: "var(--color-muted)" }}>Loading 3D globe...</div>
+    </div>
+  ),
+})
+
+const MapComponent = dynamic(() => import("@/components/map-component"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-full" style={{ background: "#0a0a0a" }}>
+      <div style={{ color: "var(--color-muted)" }}>Loading 2D map...</div>
     </div>
   ),
 })
@@ -50,6 +59,7 @@ export default function PlanetaryExplorer() {
   const [showDetails, setShowDetails] = useState(false)
   const [selectedFeature, setSelectedFeature] = useState<FamousFeature | null>(null)
   const [isRotating, setIsRotating] = useState(false)
+  const [viewMode, setViewMode] = useState<"2d" | "3d">("3d") // New state for view toggle
   
   // New state for enhanced features
   const [areaSelection, setAreaSelection] = useState<AreaSelection | null>(null)
@@ -67,6 +77,9 @@ export default function PlanetaryExplorer() {
   const [loadingFeatures, setLoadingFeatures] = useState(false)
   const [loadingMessage, setLoadingMessage] = useState("")
   const [featureStats, setFeatureStats] = useState<{kmz: number, famous: number, total: number} | null>(null)
+
+  // Map ref for controlling 2D map
+  const mapRef = useRef<any>(null)
 
   // Load features when planet changes
   useEffect(() => {
@@ -194,8 +207,9 @@ export default function PlanetaryExplorer() {
       return
     }
     
-    if (!isNotableFeature({ properties: feature })) {
-      alert('Please select notable features with timeline data for comparison')
+    // More permissive check - allow any feature with a name and type
+    if (!feature.name || !feature.type) {
+      alert('Invalid feature selected for comparison')
       return
     }
     
@@ -265,6 +279,16 @@ export default function PlanetaryExplorer() {
     }
   }, [isRotating, selectedFeature])
 
+  // Handle clicking outside features to unselect
+  const handleMapClick = useCallback(() => {
+    if (selectedFeature) {
+      setSelectedFeature(null)
+      setShowDetails(false)
+      setShowTimeline(false)
+      setNasaImages([])
+    }
+  }, [selectedFeature])
+
   return (
     <div className="h-screen flex flex-col" style={{ background: "var(--color-background)" }}>
       {/* Header */}
@@ -278,11 +302,42 @@ export default function PlanetaryExplorer() {
         <div className="px-6 py-5">
           <div className="flex items-center justify-between mb-6">
             <h1 className="font-serif text-3xl tracking-tight" style={{ color: "var(--color-foreground)" }}>
-              Planetary Explorer
+              NASALink
             </h1>
-            <div className="flex items-center gap-3 text-sm" style={{ color: "var(--color-muted)" }}>
-              <Layers className="w-4 h-4" />
-              <span>NASA/USGS Imagery</span>
+            <div className="flex items-center gap-4">
+              {/* 2D/3D Toggle */}
+              <div className="flex items-center rounded-lg overflow-hidden" style={{
+                background: "var(--color-surface-elevated)",
+                border: "1px solid var(--color-border)"
+              }}>
+                <button
+                  onClick={() => setViewMode("3d")}
+                  className={`px-4 py-2 text-sm font-medium transition-all duration-200 flex items-center gap-2 relative`}
+                  style={{
+                    background: viewMode === "3d" ? "var(--color-primary)" : "transparent",
+                    color: viewMode === "3d" ? "#ffffff" : "var(--color-foreground)",
+                    borderRight: "1px solid var(--color-border)"
+                  }}
+                >
+                  <Globe className="w-4 h-4" />
+                  3D
+                </button>
+                <button
+                  onClick={() => setViewMode("2d")}
+                  className={`px-4 py-2 text-sm font-medium transition-all duration-200 flex items-center gap-2 relative`}
+                  style={{
+                    background: viewMode === "2d" ? "var(--color-primary)" : "transparent",
+                    color: viewMode === "2d" ? "#ffffff" : "var(--color-foreground)"
+                  }}
+                >
+                  <Map className="w-4 h-4" />
+                  2D
+                </button>
+              </div>
+              <div className="flex items-center gap-3 text-sm" style={{ color: "var(--color-muted)" }}>
+                <Layers className="w-4 h-4" />
+                <span>NASA/USGS Imagery</span>
+              </div>
             </div>
           </div>
 
@@ -354,7 +409,7 @@ export default function PlanetaryExplorer() {
                     <span>
                       {filteredFeatures.length} features {areaSelection ? 'in selection' : 'available'}
                       {featureStats.kmz > 0 && (
-                        <span className="text-xs ml-2" style={{ color: "var(--color-muted)" }}>
+                        <span className="text-xs ml-2" style={{ color: "#9ca3af" }}>
                           ({featureStats.kmz} KMZ + {featureStats.famous} curated)
                         </span>
                       )}
@@ -367,6 +422,7 @@ export default function PlanetaryExplorer() {
 
                 
                 {/* New Action Buttons */}
+                {/* Area Selection - available in both 2D and 3D modes */}
                 <button
                   onClick={() => setAreaSelectionMode(!areaSelectionMode)}
                   className={`px-4 py-2.5 rounded-lg border transition-colors text-sm ${
@@ -424,26 +480,77 @@ export default function PlanetaryExplorer() {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* 3D Globe */}
+        {/* 3D Globe or 2D Map */}
         <div className="flex-1 relative">
           {selectedPlanet ? (
             <>
-              <Globe3D
-                planet={selectedPlanet}
-                features={planetFeatures}
-                onFeatureClick={comparisonMode ? handleComparisonAdd : handleFeatureClick}
-                searchQuery={searchQuery}
-                selectedFeature={selectedFeature}
-                onRotationComplete={handleRotationComplete}
-                showDetailsModal={showDetails}
-                onAreaSelect={areaSelectionMode ? handleAreaSelect : undefined}
-                areaSelection={areaSelection}
-                comparisonMode={comparisonMode}
-                onComparisonAdd={handleComparisonAdd}
-                comparisonFeatures={comparisonFeatures.map(cf => cf.feature)}
-                areaSelectionMode={areaSelectionMode}
-              />
-              {/* Area Selection Overlay */}
+              {viewMode === "3d" ? (
+                <Globe3D
+                  planet={selectedPlanet}
+                  features={planetFeatures}
+                  onFeatureClick={comparisonMode ? handleComparisonAdd : handleFeatureClick}
+                  searchQuery={searchQuery}
+                  selectedFeature={selectedFeature}
+                  onRotationComplete={handleRotationComplete}
+                  showDetailsModal={showDetails}
+                  onAreaSelect={areaSelectionMode ? handleAreaSelect : undefined}
+                  areaSelection={areaSelection}
+                  comparisonMode={comparisonMode}
+                  onComparisonAdd={handleComparisonAdd}
+                  comparisonFeatures={comparisonFeatures.map(cf => cf.feature)}
+                  areaSelectionMode={areaSelectionMode}
+                  onMapClick={handleMapClick}
+                />
+              ) : (
+                <MapComponent
+                  ref={mapRef}
+                  planet={selectedPlanet}
+                  searchQuery={searchQuery}
+                  areaSelectionMode={areaSelectionMode}
+                  onAreaSelect={handleAreaSelect}
+                  areaSelection={areaSelection}
+                  allFeatures={allFeatures}
+                  onMapClick={handleMapClick}
+                  onKMZFeatureClick={(feature) => {
+                    if (comparisonMode) {
+                      handleComparisonAdd(feature)
+                    } else {
+                      handleFeatureClick(feature)
+                    }
+                  }}
+                  onFeatureSelect={(feature) => {
+                    if (feature) {
+                      const convertedFeature: FamousFeature = {
+                        name: feature.name,
+                        type: feature.type,
+                        lat: (feature.bounds.north + feature.bounds.south) / 2,
+                        lon: (feature.bounds.east + feature.bounds.west) / 2,
+                        description: feature.description
+                      }
+                      if (comparisonMode) {
+                        handleComparisonAdd(convertedFeature)
+                      } else {
+                        // For 2D mode, show details immediately since there's no rotation
+                        setSelectedFeature(convertedFeature)
+                        setShowDetails(true)
+                        setShowTimeline(false)
+                        setNasaImages([])
+                        
+                        // Load NASA images
+                        setLoadingImages(true)
+                        fetchNASAImages(convertedFeature.name, selectedPlanet)
+                          .then(images => setNasaImages(images))
+                          .catch(error => console.error('Failed to load NASA images:', error))
+                          .finally(() => setLoadingImages(false))
+                      }
+                    } else {
+                      setSelectedFeature(null)
+                    }
+                  }}
+                  onShowDetails={() => setShowDetails(true)}
+                />
+              )}
+              {/* Area Selection Overlay - available in both modes */}
               {areaSelection && (
                 <div 
                   className="absolute bottom-4 left-4 p-3 rounded-lg border backdrop-blur-sm" 
@@ -526,15 +633,44 @@ export default function PlanetaryExplorer() {
                   filteredFeatures.map((feature, index) => (
                     <button
                       key={`${selectedPlanet}-${feature.name}-${index}`}
-                      onClick={() => {
-                        setSelectedFeature(feature)
-                        setIsRotating(true)
-                        setShowDetails(false)
+                      onClick={async () => {
+                        if (comparisonMode) {
+                          handleComparisonAdd(feature)
+                        } else {
+                          setSelectedFeature(feature)
+                          
+                          if (viewMode === "2d") {
+                            // For 2D mode: pan to feature first, then show details after animation
+                            if (mapRef.current?.panToLocation) {
+                              await mapRef.current.panToLocation(feature.lat, feature.lon, 6)
+                            }
+                            
+                            // Show details after the pan animation completes
+                            setShowDetails(true)
+                            setShowTimeline(false)
+                            setNasaImages([])
+                            
+                            // Load NASA images
+                            setLoadingImages(true)
+                            fetchNASAImages(feature.name, selectedPlanet)
+                              .then(images => setNasaImages(images))
+                              .catch(error => console.error('Failed to load NASA images:', error))
+                              .finally(() => setLoadingImages(false))
+                          } else {
+                            // For 3D mode: use rotation animation
+                            setIsRotating(true)
+                            setShowDetails(false)
+                          }
+                        }
                       }}
                       className="w-full text-left p-3 rounded-lg border transition-colors hover:border-[var(--color-primary)]"
                       style={{
-                        background: "var(--color-surface-elevated)",
-                        borderColor: "var(--color-border)",
+                        background: selectedFeature?.name === feature.name 
+                          ? "var(--color-sidebar-accent)" 
+                          : "var(--color-card)",
+                        borderColor: selectedFeature?.name === feature.name 
+                          ? "var(--color-primary)" 
+                          : "var(--color-border)",
                       }}
                     >
                       <div className="font-medium mb-1" style={{ color: "var(--color-foreground)" }}>
