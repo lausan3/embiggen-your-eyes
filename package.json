@@ -74,5 +74,11 @@
     "tailwindcss": "^4.1.9",
     "tw-animate-css": "1.3.3",
     "typescript": "^5"
+  },
+    "overrides": {
+    "vaul": {
+      "react": "$react",
+      "react-dom": "$react-dom"
+    }
   }
 }

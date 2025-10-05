@@ -1,11 +1,13 @@
 "use client"
 
 import React, { useRef, useMemo, useState, useEffect, type ErrorInfo } from "react"
-import { Canvas, useFrame } from "@react-three/fiber"
+import { Canvas, useFrame, useThree } from "@react-three/fiber"
 import { OrbitControls, Html, Stars, useTexture } from "@react-three/drei"
 import * as THREE from "three"
 import { latLonToVector3 } from "@/lib/utils/coordinates"
 import { PLANETARY_CONFIG as CONFIG } from "@/lib/config"
+import { createSelectionBox, getDefaultAreaBounds, filterFeaturesByBounds, cartesianToSpherical, type BoundingBox } from "@/lib/area-selection"
+import { getVisibleFeatures, getFeaturesByZoom } from "@/lib/feature-visibility"
 
 interface FamousFeature {
   name: string
@@ -16,6 +18,17 @@ interface FamousFeature {
   diameter?: number
   description?: string
   withinRegion?: string
+}
+
+interface AreaSelection {
+  bounds: BoundingBox
+  visible: boolean
+  features: FamousFeature[]
+}
+
+interface ComparisonData {
+  features: FamousFeature[]
+  mode: boolean
 }
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
@@ -51,8 +64,14 @@ interface Globe3DProps {
   onFeatureClick: (feature: FamousFeature) => void
   searchQuery: string
   selectedFeature: FamousFeature | null
-  onRotationComplete?: () => void // Added callback for when rotation animation completes
-  showDetailsModal?: boolean // Added to know when details modal is open
+  onRotationComplete?: () => void
+  showDetailsModal?: boolean
+  onAreaSelect?: (bounds: BoundingBox) => void
+  areaSelection?: AreaSelection | null
+  comparisonMode?: boolean
+  onComparisonAdd?: (feature: FamousFeature) => void
+  comparisonFeatures?: FamousFeature[]
+  areaSelectionMode?: boolean
 }
 
 const FeatureMarker = React.memo(function FeatureMarker({
@@ -60,11 +79,17 @@ const FeatureMarker = React.memo(function FeatureMarker({
   onClick,
   isHighlighted,
   showDetailsModal,
+  comparisonMode,
+  isInComparison,
+  comparisonIndex,
 }: {
   feature: FamousFeature
   onClick: () => void
   isHighlighted: boolean
   showDetailsModal?: boolean
+  comparisonMode?: boolean
+  isInComparison?: boolean
+  comparisonIndex?: number
 }) {
   const meshRef = useRef<THREE.Mesh>(null)
   const [hovered, setHovered] = useState(false)
@@ -112,18 +137,31 @@ const FeatureMarker = React.memo(function FeatureMarker({
         onPointerOut={handlePointerOut}
         onPointerLeave={handlePointerOut}
       >
-        <sphereGeometry args={[0.05, 16, 16]} />
-        <meshBasicMaterial color={isHighlighted ? "#00FFFF" : "#FFFF00"} />
+        <sphereGeometry args={[0.02, 8, 8]} />
+        <meshBasicMaterial 
+          color={
+            isInComparison 
+              ? (comparisonIndex === 0 ? "#4a9eff" : "#ff9d4a")
+              : isHighlighted 
+                ? "#00FFFF" 
+                : "#FFFF00"
+          } 
+        />
       </mesh>
       {(hovered || isHighlighted) && !showDetailsModal && (
-        <Html distanceFactor={10} position={[0, 0.1, 0]}>
+        <Html distanceFactor={25} position={[0, 0.06, 0]}>
           <div
-            className="px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap pointer-events-none"
+            className="px-0.5 py-0.5 rounded whitespace-nowrap pointer-events-none"
             style={{
-              background: "rgba(26, 26, 26, 0.95)",
+              background: "rgba(26, 26, 26, 0.8)",
               color: "#ffffff",
-              border: "1px solid rgba(212, 165, 116, 0.3)",
-              boxShadow: "0 4px 12px rgba(0, 0, 0, 0.5)",
+              border: "1px solid rgba(212, 165, 116, 0.1)",
+              boxShadow: "0 1px 2px rgba(0, 0, 0, 0.2)",
+              fontSize: "6px",
+              lineHeight: "1",
+              maxWidth: "80px",
+              textOverflow: "ellipsis",
+              overflow: "hidden"
             }}
           >
             {feature.name}
@@ -176,6 +214,188 @@ const GridLines = React.memo(function GridLines() {
   )
 })
 
+const AreaSelectionBox = React.memo(function AreaSelectionBox({
+  bounds,
+  visible
+}: {
+  bounds: BoundingBox
+  visible: boolean
+}) {
+  const geometry = useMemo(() => createSelectionBox(bounds), [bounds])
+  const [opacity, setOpacity] = useState(0.3)
+  
+  useEffect(() => {
+    // Pulse effect for better visual feedback
+    const interval = setInterval(() => {
+      setOpacity(prev => prev === 0.3 ? 0.8 : 0.3)
+    }, 800)
+    
+    return () => clearInterval(interval)
+  }, [])
+  
+  if (!visible) return null
+  
+  return (
+    <>
+      {/* Main selection border */}
+      <lineSegments geometry={geometry}>
+        <lineBasicMaterial color="#4a9eff" opacity={opacity} transparent linewidth={3} />
+      </lineSegments>
+      
+      {/* Subtle fill for better visualization */}
+      <mesh>
+        <bufferGeometry attach="geometry">
+          <bufferAttribute
+            attach="attributes-position"
+            array={geometry.attributes.position.array}
+            count={geometry.attributes.position.count}
+            itemSize={3}
+          />
+        </bufferGeometry>
+        <meshBasicMaterial color="#4a9eff" opacity={0.1} transparent side={THREE.DoubleSide} />
+      </mesh>
+    </>
+  )
+})
+
+// Smooth area selection with enhanced visual feedback
+const AreaSelectionHandler = React.memo(function AreaSelectionHandler({
+  onAreaSelect,
+  isActive,
+  planet
+}: {
+  onAreaSelect?: (bounds: BoundingBox) => void
+  isActive: boolean
+  planet: string
+}) {
+  const { camera, raycaster, gl } = useThree()
+  const [isSelecting, setIsSelecting] = useState(false)
+  const [startPoint, setStartPoint] = useState<THREE.Vector3 | null>(null)
+  const [currentBounds, setCurrentBounds] = useState<BoundingBox | null>(null)
+  const [selectionPreview, setSelectionPreview] = useState<{ start: THREE.Vector3; end: THREE.Vector3 } | null>(null)
+  
+  const getPointFromEvent = (event: any): THREE.Vector3 | null => {
+    const canvas = gl.domElement
+    const rect = canvas.getBoundingClientRect()
+    
+    const clientX = event.nativeEvent?.clientX || event.clientX
+    const clientY = event.nativeEvent?.clientY || event.clientY
+    
+    const x = ((clientX - rect.left) / rect.width) * 2 - 1
+    const y = -((clientY - rect.top) / rect.height) * 2 + 1
+    
+    raycaster.setFromCamera(new THREE.Vector2(x, y), camera)
+    
+    // Create a sphere at radius 2 to match the planet surface
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(2, 32, 32),
+      new THREE.MeshBasicMaterial()
+    )
+    
+    const intersects = raycaster.intersectObject(sphere)
+    
+    return intersects.length > 0 ? intersects[0].point.clone() : null
+  }
+  
+  const handlePointerDown = (event: any) => {
+    if (!isActive || !onAreaSelect) return
+    
+    event.stopPropagation()
+    const point = getPointFromEvent(event)
+    
+    if (point) {
+      setStartPoint(point)
+      setIsSelecting(true)
+      setCurrentBounds(null)
+    }
+  }
+  
+  const handlePointerMove = (event: any) => {
+    if (!isSelecting || !startPoint) return
+    
+    const endPoint = getPointFromEvent(event)
+    if (endPoint) {
+      // Update preview for smooth visual feedback
+      setSelectionPreview({ start: startPoint, end: endPoint })
+      
+      const start = cartesianToSpherical(startPoint)
+      const end = cartesianToSpherical(endPoint)
+      
+      // Create smoother bounds with proper wrapping
+      const bounds = {
+        north: Math.max(start.lat, end.lat),
+        south: Math.min(start.lat, end.lat),
+        east: Math.max(start.lon, end.lon),
+        west: Math.min(start.lon, end.lon)
+      }
+      
+      // Handle longitude wrapping for better UX
+      if (Math.abs(start.lon - end.lon) > 180) {
+        bounds.east = Math.min(start.lon, end.lon)
+        bounds.west = Math.max(start.lon, end.lon)
+      }
+      
+      setCurrentBounds(bounds)
+    }
+  }
+  
+  const handlePointerUp = (event: any) => {
+    if (!isSelecting || !startPoint || !onAreaSelect) return
+    
+    const endPoint = getPointFromEvent(event)
+    
+    if (endPoint) {
+      const start = cartesianToSpherical(startPoint)
+      const end = cartesianToSpherical(endPoint)
+      
+      const bounds: BoundingBox = {
+        north: Math.max(start.lat, end.lat),
+        south: Math.min(start.lat, end.lat),
+        east: Math.max(start.lon, end.lon),
+        west: Math.min(start.lon, end.lon)
+      }
+      
+      // Only create selection if it's big enough
+      const minSize = 5 // degrees
+      if (Math.abs(bounds.north - bounds.south) > minSize || 
+          Math.abs(bounds.east - bounds.west) > minSize) {
+        onAreaSelect(bounds)
+      }
+    }
+    
+    setIsSelecting(false)
+    setStartPoint(null)
+    setCurrentBounds(null)
+    setSelectionPreview(null)
+  }
+  
+  return (
+    <>
+      <mesh
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        visible={false}
+      >
+        <sphereGeometry args={[2.1, 64, 64]} />
+        <meshBasicMaterial transparent opacity={0} />
+      </mesh>
+      
+      {/* Show current selection preview */}
+      {currentBounds && (
+        <AreaSelectionBox bounds={currentBounds} visible={true} />
+      )}
+      
+      {/* Show smooth selection line during dragging */}
+      {selectionPreview && (
+        <line geometry={new THREE.BufferGeometry().setFromPoints([selectionPreview.start, selectionPreview.end])}>
+          <lineBasicMaterial color="#4a9eff" opacity={0.6} transparent linewidth={2} />
+        </line>
+      )}
+    </>
+  )
+})
+
 const PlanetSphere = React.memo(function PlanetSphere({
   planet,
   textureUrl,
@@ -186,6 +406,11 @@ const PlanetSphere = React.memo(function PlanetSphere({
   onFeatureClick,
   searchQuery,
   showDetailsModal,
+  onAreaSelect,
+  areaSelection,
+  comparisonMode,
+  onComparisonAdd,
+  comparisonFeatures,
 }: {
   planet: string
   textureUrl: string
@@ -196,11 +421,17 @@ const PlanetSphere = React.memo(function PlanetSphere({
   onFeatureClick: (feature: FamousFeature) => void
   searchQuery: string
   showDetailsModal?: boolean
+  onAreaSelect?: (bounds: BoundingBox) => void
+  areaSelection?: AreaSelection | null
+  comparisonMode?: boolean
+  onComparisonAdd?: (feature: FamousFeature) => void
+  comparisonFeatures?: FamousFeature[]
 }) {
   const groupRef = useRef<THREE.Group>(null)
   const targetRotation = useRef<{ x: number; y: number } | null>(null)
   const hasNotifiedCompletion = useRef(false)
   const texture = useTexture(textureUrl)
+  const { camera } = useThree()
 
   useEffect(() => {
     if (texture) {
@@ -218,10 +449,26 @@ const PlanetSphere = React.memo(function PlanetSphere({
       const lon = THREE.MathUtils.degToRad(selectedFeature.lon)
       const lat = THREE.MathUtils.degToRad(selectedFeature.lat)
 
+      // Calculate shortest angular path for rotation
+      const currentX = groupRef.current.rotation.x
+      const currentY = groupRef.current.rotation.y
+      
+      const targetX = -lat
+      const targetY = -lon
+
+      // For Y rotation (longitude), we need to handle the wrap-around at ±π
+      let deltaY = targetY - currentY
+      
+      // Normalize deltaY to be within [-π, π] for shortest path
+      while (deltaY > Math.PI) deltaY -= 2 * Math.PI
+      while (deltaY < -Math.PI) deltaY += 2 * Math.PI
+      
+      const finalTargetY = currentY + deltaY
+
       // to bring it to face the camera (which is on +Z axis)
       targetRotation.current = {
-        x: -lat, // Negative to rotate globe opposite to latitude
-        y: -lon, // Negative to rotate globe opposite to longitude
+        x: targetX, // Latitude rotation
+        y: finalTargetY, // Longitude rotation with shortest path
       }
     }
   }, [selectedFeature])
@@ -249,14 +496,42 @@ const PlanetSphere = React.memo(function PlanetSphere({
     // }
   })
 
+  const [cameraPosition, setCameraPosition] = useState(camera.position.clone())
+  
+  useFrame(() => {
+    // Track camera changes for dynamic feature filtering
+    const newPosition = camera.position.clone()
+    if (newPosition.distanceTo(cameraPosition) > 0.1) {
+      setCameraPosition(newPosition)
+    }
+  })
+
   const filteredFeatures = useMemo(() => {
-    if (!searchQuery) return features
-    return features.filter(
-      (f) =>
-        f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        f.type.toLowerCase().includes(searchQuery.toLowerCase()),
-    )
-  }, [features, searchQuery])
+    let result = features
+    
+    // Apply search query filter
+    if (searchQuery) {
+      result = result.filter(
+        (f) =>
+          f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          f.type.toLowerCase().includes(searchQuery.toLowerCase()),
+      )
+    }
+    
+    // Apply smart visibility filtering to reduce clutter
+    if (result.length > 200) {
+      // Get visible features based on camera position
+      const visibleFeatures = getVisibleFeatures(result, camera, 200)
+      
+      // Further filter by zoom level to show appropriate detail
+      const cameraDistance = cameraPosition.length()
+      const zoomLevel = Math.max(1, 10 - cameraDistance)
+      
+      return getFeaturesByZoom(visibleFeatures, zoomLevel, 150)
+    }
+    
+    return result
+  }, [features, searchQuery, camera, cameraPosition])
 
   return (
     <group ref={groupRef}>
@@ -272,15 +547,33 @@ const PlanetSphere = React.memo(function PlanetSphere({
         />
       </mesh>
       <GridLines />
-      {filteredFeatures.map((feature, index) => (
-        <FeatureMarker
-          key={`${planet}-${feature.name}-${index}`}
-          feature={feature}
-          onClick={() => onFeatureClick(feature)}
-          isHighlighted={selectedFeature === feature}
-          showDetailsModal={showDetailsModal}
-        />
-      ))}
+      {areaSelection && (
+        <AreaSelectionBox bounds={areaSelection.bounds} visible={areaSelection.visible} />
+      )}
+      <AreaSelectionHandler onAreaSelect={onAreaSelect} isActive={!!onAreaSelect} planet={planet} />
+      {filteredFeatures.map((feature, index) => {
+        const comparisonIndex = comparisonFeatures?.findIndex(f => f.name === feature.name)
+        const isInComparison = comparisonIndex !== undefined && comparisonIndex >= 0
+        
+        return (
+          <FeatureMarker
+            key={`${planet}-${feature.name}-${index}`}
+            feature={feature}
+            onClick={() => {
+              if (comparisonMode && onComparisonAdd) {
+                onComparisonAdd(feature)
+              } else {
+                onFeatureClick(feature)
+              }
+            }}
+            isHighlighted={selectedFeature === feature}
+            showDetailsModal={showDetailsModal}
+            comparisonMode={comparisonMode}
+            isInComparison={isInComparison}
+            comparisonIndex={comparisonIndex}
+          />
+        )
+      })}
     </group>
   )
 })
@@ -293,17 +586,17 @@ const Scene = React.memo(function Scene({
   selectedFeature,
   onRotationComplete,
   showDetailsModal,
+  onAreaSelect,
+  areaSelection,
+  comparisonMode,
+  onComparisonAdd,
+  comparisonFeatures,
+  areaSelectionMode,
 }: Globe3DProps) {
   const config = CONFIG[planet]
 
-  const filteredFeatures = useMemo(() => {
-    if (!searchQuery) return features
-    return features.filter(
-      (f) =>
-        f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        f.type.toLowerCase().includes(searchQuery.toLowerCase()),
-    )
-  }, [features, searchQuery])
+  // Scene component doesn't need filtering as it passes features to PlanetSphere
+  // The PlanetSphere component handles all the smart filtering
 
   if (!config) {
     console.error(`No configuration found for planet: ${planet}`)
@@ -331,6 +624,11 @@ const Scene = React.memo(function Scene({
         onFeatureClick={onFeatureClick}
         searchQuery={searchQuery}
         showDetailsModal={showDetailsModal}
+        onAreaSelect={onAreaSelect}
+        areaSelection={areaSelection}
+        comparisonMode={comparisonMode}
+        onComparisonAdd={onComparisonAdd}
+        comparisonFeatures={comparisonFeatures}
       />
 
       <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
@@ -338,7 +636,7 @@ const Scene = React.memo(function Scene({
       <OrbitControls
         enablePan={true}
         enableZoom={true}
-        enableRotate={true}
+        enableRotate={!areaSelectionMode}
         minDistance={3}
         maxDistance={10}
         rotateSpeed={0.5}
@@ -356,6 +654,12 @@ const Globe3D = React.memo(function Globe3D({
   selectedFeature,
   onRotationComplete,
   showDetailsModal,
+  onAreaSelect,
+  areaSelection,
+  comparisonMode,
+  onComparisonAdd,
+  comparisonFeatures,
+  areaSelectionMode,
 }: Globe3DProps) {
   return (
     <ErrorBoundary>
@@ -377,6 +681,12 @@ const Globe3D = React.memo(function Globe3D({
             selectedFeature={selectedFeature}
             onRotationComplete={onRotationComplete}
             showDetailsModal={showDetailsModal}
+            onAreaSelect={onAreaSelect}
+            areaSelection={areaSelection}
+            comparisonMode={comparisonMode}
+            onComparisonAdd={onComparisonAdd}
+            comparisonFeatures={comparisonFeatures}
+            areaSelectionMode={areaSelectionMode}
           />
         </Canvas>
       </div>
