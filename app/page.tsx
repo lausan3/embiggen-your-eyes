@@ -278,7 +278,7 @@ export default function PlanetaryExplorer() {
         <div className="px-6 py-5">
           <div className="flex items-center justify-between mb-6">
             <h1 className="font-serif text-3xl tracking-tight" style={{ color: "var(--color-foreground)" }}>
-              Planetary Explorer
+              NASALink
             </h1>
             <div className="flex items-center gap-3 text-sm" style={{ color: "var(--color-muted)" }}>
               <Layers className="w-4 h-4" />
