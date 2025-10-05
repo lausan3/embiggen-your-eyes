@@ -275,14 +275,27 @@ const AreaSelectionHandler = React.memo(function AreaSelectionHandler({
   const [selectionPreview, setSelectionPreview] = useState<{ start: THREE.Vector3; end: THREE.Vector3 } | null>(null)
   
   const getPointFromEvent = (event: any): THREE.Vector3 | null => {
-    const canvas = gl.domElement
-    const rect = canvas.getBoundingClientRect()
+    // Try to use React Three Fiber's normalized pointer first
+    let x: number, y: number
     
-    const clientX = event.nativeEvent?.clientX || event.clientX
-    const clientY = event.nativeEvent?.clientY || event.clientY
+    if (event.pointer) {
+      // R3F provides normalized coordinates directly
+      x = event.pointer.x
+      y = event.pointer.y
+    } else {
+      // Manual calculation as fallback
+      const canvas = gl.domElement
+      const rect = canvas.getBoundingClientRect()
+      
+      const clientX = event.nativeEvent?.clientX || event.clientX
+      const clientY = event.nativeEvent?.clientY || event.clientY
+      
+      x = ((clientX - rect.left) / rect.width) * 2 - 1
+      y = -((clientY - rect.top) / rect.height) * 2 + 1
+    }
     
-    const x = ((clientX - rect.left) / rect.width) * 2 - 1
-    const y = -((clientY - rect.top) / rect.height) * 2 + 1
+    // Debug logging to understand coordinate issues
+    console.log('Area selection coordinates:', { x, y, eventType: event.type })
     
     raycaster.setFromCamera(new THREE.Vector2(x, y), camera)
     
@@ -294,7 +307,14 @@ const AreaSelectionHandler = React.memo(function AreaSelectionHandler({
     
     const intersects = raycaster.intersectObject(sphere)
     
-    return intersects.length > 0 ? intersects[0].point.clone() : null
+    if (intersects.length > 0) {
+      const point = intersects[0].point.clone()
+      const spherical = cartesianToSpherical(point)
+      console.log('Selected point:', { cartesian: point, spherical })
+      return point
+    }
+    
+    return null
   }
   
   const handlePointerDown = (event: any) => {
