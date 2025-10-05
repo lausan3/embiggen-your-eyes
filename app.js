@@ -23,6 +23,9 @@ function init() {
     setupPlanetSelector();
     initMap();
     setupEventListeners();
+
+    // Load Moon by default
+    loadPlanet('Moon');
 }
 
 // Set up planet selector dropdown
@@ -58,7 +61,11 @@ function initMap() {
 
 // Load a specific planet
 async function loadPlanet(planetKey) {
-    if (!planetKey) return;
+    if (!planetKey) {
+        // Default to Moon if no planet selected
+        planetKey = 'Moon';
+        document.getElementById('planetSelect').value = planetKey;
+    }
 
     const config = PLANETARY_CONFIG[planetKey];
     currentPlanet = config;
@@ -192,10 +199,10 @@ function parseKML(kmlText) {
     return parsedFeatures;
 }
 
-// Load features from USGS KMZ file
+// Load features from USGS KMZ file or curated Earth features
 async function loadFeatures(planetName) {
     const sidebar = document.getElementById('featureList');
-    sidebar.innerHTML = '<div class="loading">Loading features from USGS...</div>';
+    sidebar.innerHTML = '<div class="loading">Loading features...</div>';
 
     console.log(`Loading features for ${planetName}`);
 
@@ -306,6 +313,79 @@ function getRegionBoundary(regionName) {
 }
 
 // Display features in sidebar
+// Organize features into parent-child hierarchy
+function organizeFeatureHierarchy(featureList) {
+    const hierarchy = [];
+    const parentMap = new Map();
+    const childMap = new Map();
+
+    // First pass: identify parents and children
+    featureList.forEach(feature => {
+        const name = feature.properties.name || 'Unnamed';
+
+        // Check if this is a subfeature (has letter suffix like "A", "B", "AA", etc.)
+        const subfeatureMatch = name.match(/^(.+?)\s+([A-Z]{1,2})$/);
+
+        if (subfeatureMatch) {
+            const parentName = subfeatureMatch[1].trim();
+            const suffix = subfeatureMatch[2];
+
+            // Store this as a child
+            if (!childMap.has(parentName)) {
+                childMap.set(parentName, []);
+            }
+            childMap.get(parentName).push({ feature, suffix });
+        } else {
+            // This could be a parent feature
+            parentMap.set(name, feature);
+        }
+    });
+
+    // Second pass: build hierarchy
+    const processedChildren = new Set();
+
+    featureList.forEach(feature => {
+        const name = feature.properties.name || 'Unnamed';
+
+        // Skip if already processed as a child
+        if (processedChildren.has(name)) return;
+
+        // Check if this is a subfeature
+        const subfeatureMatch = name.match(/^(.+?)\s+([A-Z]{1,2})$/);
+        if (subfeatureMatch) {
+            processedChildren.add(name);
+            return; // Will be added under parent
+        }
+
+        // Add parent feature
+        const hierarchyItem = {
+            feature: feature,
+            children: []
+        };
+
+        // Add children if any
+        if (childMap.has(name)) {
+            const children = childMap.get(name);
+            // Sort children by suffix (A, B, C... then AA, AB, etc.)
+            children.sort((a, b) => {
+                if (a.suffix.length !== b.suffix.length) {
+                    return a.suffix.length - b.suffix.length;
+                }
+                return a.suffix.localeCompare(b.suffix);
+            });
+
+            children.forEach(child => {
+                hierarchyItem.children.push(child.feature);
+                processedChildren.add(child.feature.properties.name);
+            });
+        }
+
+        hierarchy.push(hierarchyItem);
+    });
+
+    return hierarchy;
+}
+
 function displayFeatures(featureList) {
     const sidebar = document.getElementById('featureList');
     sidebar.innerHTML = '';
@@ -317,25 +397,53 @@ function displayFeatures(featureList) {
 
     displayList = featureList;
 
-    featureList.forEach(feature => {
-        const item = document.createElement('div');
-        item.className = 'feature-item';
+    // Organize into hierarchy
+    const hierarchy = organizeFeatureHierarchy(featureList);
+
+    hierarchy.forEach(item => {
+        const feature = item.feature;
+        const parentItem = document.createElement('div');
+        parentItem.className = 'feature-item';
 
         const name = feature.properties.name || 'Unnamed';
         const type = feature.properties.featureType || 'Unknown';
         const withinRegion = feature.properties.withinRegion;
 
-        let html = `<h4>${name}</h4><p>${type}`;
+        let html = `<span class="feature-icon">⭐</span><div class="feature-content"><h4>${name}</h4><p>${type}`;
 
         if (withinRegion) {
             html += ` <span style="color: #4a9eff;">in ${withinRegion}</span>`;
         }
 
-        html += `</p>`;
-        item.innerHTML = html;
+        html += `</p></div>`;
+        parentItem.innerHTML = html;
 
-        item.addEventListener('click', () => highlightFeature(feature));
-        sidebar.appendChild(item);
+        parentItem.addEventListener('click', () => highlightFeature(feature));
+        sidebar.appendChild(parentItem);
+
+        // Add children if any
+        if (item.children.length > 0) {
+            const childContainer = document.createElement('div');
+            childContainer.className = 'subfeatures';
+
+            item.children.forEach(childFeature => {
+                const childItem = document.createElement('div');
+                childItem.className = 'subfeature-item';
+
+                const childName = childFeature.properties.name || 'Unnamed';
+                const suffix = childName.match(/\s+([A-Z]{1,2})$/)?.[1] || '';
+
+                childItem.innerHTML = `<span class="subfeature-icon">•</span><span class="subfeature-suffix">${suffix}</span> ${childName}`;
+                childItem.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    highlightFeature(childFeature);
+                });
+
+                childContainer.appendChild(childItem);
+            });
+
+            sidebar.appendChild(childContainer);
+        }
     });
 
     // Add markers for all features
@@ -350,17 +458,38 @@ function addFeatureMarkers(featureList) {
         if (!feature.geometry || !feature.geometry.coordinates) return;
 
         const [lon, lat] = feature.geometry.coordinates;
+        const name = feature.properties.name || 'Unnamed';
 
-        const marker = L.circleMarker([lat, lon], {
-            radius: 4,
-            fillColor: '#4a9eff',
-            color: '#fff',
-            weight: 1,
-            opacity: 1,
-            fillOpacity: 0.8
-        }).addTo(map);
+        // Check if this is a subfeature (has letter suffix like "A", "B", etc.)
+        const isSubfeature = /^(.+?)\s+([A-Z]{1,2})$/.test(name);
 
-        marker.bindTooltip(feature.properties.name || 'Unnamed', {
+        let marker;
+
+        if (isSubfeature) {
+            // Small blue dot for subfeatures
+            marker = L.circleMarker([lat, lon], {
+                radius: 3,
+                fillColor: '#4a9eff',
+                color: '#fff',
+                weight: 1,
+                opacity: 1,
+                fillOpacity: 0.7
+            }).addTo(map);
+        } else {
+            // Yellow star for main features
+            const starIcon = L.icon({
+                iconUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCIgdmlld0JveD0iMCAwIDUwIDUwIj48cGF0aCBmaWxsPSIjRkZDMTMzIiBkPSJNMjUgMi41bDYuNSAxMy41IDE1IC41LTExIDEwLjUgMyAxNC41LTEzLjUtNy0xMy41IDcgMy0xNC41LTExLTEwLjUgMTUtLjV6Ii8+PC9zdmc+',
+                iconSize: [24, 24],
+                iconAnchor: [12, 12],
+                popupAnchor: [0, -12]
+            });
+
+            marker = L.marker([lat, lon], {
+                icon: starIcon
+            }).addTo(map);
+        }
+
+        marker.bindTooltip(name, {
             permanent: false,
             direction: 'top'
         });
