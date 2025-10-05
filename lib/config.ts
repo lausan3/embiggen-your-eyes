@@ -22,7 +22,7 @@ export const PLANETARY_CONFIG: Record<string, PlanetaryConfig> = {
     maxZoom: 8,
     usgs_name: "Moon",
     kmz_url: "data/MOON_nomenclature_center_pts.kmz",
-    textureUrl: "/moon-surface-texture-realistic-gray-craters.jpg",
+    textureUrl: "/2k_moon.jpg",
     fallbackColor: "#8a8a8a",
   },
   Mars: {
@@ -35,7 +35,7 @@ export const PLANETARY_CONFIG: Record<string, PlanetaryConfig> = {
     maxZoom: 7,
     usgs_name: "Mars",
     kmz_url: "data/MARS_nomenclature_center_pts.kmz",
-    textureUrl: "/mars-surface-texture-realistic-red-orange-terrain.jpg",
+    textureUrl: "/2k_mars.jpg",
     fallbackColor: "#cd5c5c",
   },
   Europa: {
@@ -70,7 +70,7 @@ export const PLANETARY_CONFIG: Record<string, PlanetaryConfig> = {
     maxZoom: 6,
     usgs_name: "Mercury",
     kmz_url: "data/MERCURY_nomenclature_center_pts.kmz",
-    textureUrl: "/mercury-surface-texture-realistic-gray-brown-crate.jpg",
+    textureUrl: "/2k_mercury.jpg",
     fallbackColor: "#a0826d",
   },
   Vesta: {
