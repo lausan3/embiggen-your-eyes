@@ -187,7 +187,8 @@ function parseKML(kmlText) {
                 approval_date: approvalDate,
                 ethnicity: ethnicity,
                 code: code,
-                source: 'kmz'
+                source: 'kmz',
+                withinRegion: null  // Will be determined after loading
             },
             geometry: {
                 coordinates: [lon, lat]
@@ -285,11 +286,27 @@ async function loadFeatures(planetName) {
 
         console.log(`Total features: ${features.length} (${kmzFeatures.length} from KMZ + ${uniqueFamous.length} famous)`);
 
+        // Assign geographic regions to features
+        try {
+            // Get the planet key from PLANETARY_CONFIG
+            const planetKey = Object.keys(PLANETARY_CONFIG).find(
+                key => PLANETARY_CONFIG[key].usgs_name === planetName
+            );
+            if (planetKey) {
+                assignRegionsToFeatures(features, planetKey);
+                console.log('✓ Assigned geographic regions to features');
+            }
+        } catch (regionError) {
+            console.warn('Failed to assign regions:', regionError);
+        }
+
     } catch (error) {
         console.error('Failed to load KMZ, using famous features:', error);
         features = famousFeatures;
         console.log(`Using ${features.length} famous features as fallback`);
     }
+
+    console.log(`Final feature count: ${features.length}`);
 
     // Sort by name
     features.sort((a, b) => {
@@ -303,6 +320,34 @@ async function loadFeatures(planetName) {
 }
 
 // Get region boundary for a feature that is inside a larger region
+// Detect which region a feature is within
+function detectFeatureRegion(feature, planetKey) {
+    if (!GEOGRAPHIC_FEATURES[planetKey]) return null;
+
+    const [lon, lat] = feature.geometry.coordinates;
+
+    for (const region of GEOGRAPHIC_FEATURES[planetKey]) {
+        const bounds = region.bounds;
+
+        // Check if coordinates fall within region bounds
+        if (lat >= bounds.south && lat <= bounds.north &&
+            lon >= bounds.west && lon <= bounds.east) {
+            return region.name;
+        }
+    }
+
+    return null;
+}
+
+// Apply region detection to all features
+function assignRegionsToFeatures(featureList, planetKey) {
+    featureList.forEach(feature => {
+        if (!feature.properties.withinRegion) {
+            feature.properties.withinRegion = detectFeatureRegion(feature, planetKey);
+        }
+    });
+}
+
 function getRegionBoundary(regionName) {
     if (!currentPlanet || !GEOGRAPHIC_FEATURES) return null;
 
@@ -409,13 +454,13 @@ function displayFeatures(featureList) {
         const type = feature.properties.featureType || 'Unknown';
         const withinRegion = feature.properties.withinRegion;
 
-        let html = `<span class="feature-icon">⭐</span><div class="feature-content"><h4>${name}</h4><p>${type}`;
+        let html = `<h4>${name}</h4><p>${type}`;
 
         if (withinRegion) {
             html += ` <span style="color: #4a9eff;">in ${withinRegion}</span>`;
         }
 
-        html += `</p></div>`;
+        html += `</p>`;
         parentItem.innerHTML = html;
 
         parentItem.addEventListener('click', () => highlightFeature(feature));
@@ -951,9 +996,15 @@ async function showFeatureDetails(feature) {
     const props = feature.properties;
     const [lon, lat] = feature.geometry.coordinates;
 
+    // Remove any existing feature details box
+    const existingDetails = sidebar.querySelector('.feature-details-box');
+    if (existingDetails) {
+        existingDetails.remove();
+    }
+
     // Build basic info HTML
     let html = `
-        <div style="background: #0a0e27; padding: 1rem; border-radius: 4px; border: 2px solid #4a9eff; margin-bottom: 1rem;">
+        <div class="feature-details-box" style="background: #0a0e27; padding: 1rem; border-radius: 4px; border: 2px solid #4a9eff; margin-bottom: 1rem;">
             <h3 style="color: #4a9eff; margin-bottom: 1rem;">${props.name || 'Unnamed Feature'}</h3>
             <p><strong>Type:</strong> ${props.featureType || 'Unknown'}</p>
             <p><strong>Coordinates:</strong> ${lat.toFixed(2)}°, ${lon.toFixed(2)}°</p>
@@ -972,7 +1023,7 @@ async function showFeatureDetails(feature) {
         html += `</div>`;
 
         // Prepend to sidebar (show at top)
-        sidebar.innerHTML = html + sidebar.innerHTML;
+        sidebar.insertAdjacentHTML('afterbegin', html);
 
         // Check cache first
         let timeline;
@@ -1008,7 +1059,7 @@ async function showFeatureDetails(feature) {
     } else {
         html += `</div>`;
         // Prepend to sidebar (show at top)
-        sidebar.innerHTML = html + sidebar.innerHTML;
+        sidebar.insertAdjacentHTML('afterbegin', html);
     }
 
     // Scroll to top of sidebar
