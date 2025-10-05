@@ -31,6 +31,13 @@ function init() {
 // Set up planet selector dropdown
 function setupPlanetSelector() {
     const select = document.getElementById('planetSelect');
+    
+    // Add default option
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Select a Celestial Body';
+    select.appendChild(defaultOption);
+    
     Object.keys(PLANETARY_CONFIG).forEach(planet => {
         const option = document.createElement('option');
         option.value = planet;
@@ -50,8 +57,14 @@ function initMap() {
         attributionControl: true,
         maxBounds: [[-90, -180], [90, 180]],
         maxBoundsViscosity: 1.0,
-        editable: true
+        editable: true,
+        zoomControl: false  // Disable default zoom control
     });
+
+    // Add zoom control to bottom right
+    L.control.zoom({
+        position: 'bottomright'
+    }).addTo(map);
 
     map.attributionControl.addAttribution('Tiles: NASA/USGS');
 
@@ -368,8 +381,9 @@ function organizeFeatureHierarchy(featureList) {
     featureList.forEach(feature => {
         const name = feature.properties.name || 'Unnamed';
 
-        // Check if this is a subfeature (has letter suffix like "A", "B", "AA", etc.)
-        const subfeatureMatch = name.match(/^(.+?)\s+([A-Z]{1,2})$/);
+        // Check if this is a subfeature (has letter suffix like "A", "B" or number suffix like "-0", "-1")
+        const subfeatureMatch = name.match(/^(.+?)[\s\-]+([A-Z]{1,2}|\d+)$/);
+        const isAlbedoFeature = (feature.properties.featureType || '').toLowerCase().includes('albedo');
 
         if (subfeatureMatch) {
             const parentName = subfeatureMatch[1].trim();
@@ -381,7 +395,7 @@ function organizeFeatureHierarchy(featureList) {
             }
             childMap.get(parentName).push({ feature, suffix });
         } else {
-            // This could be a parent feature
+            // This could be a parent feature (including albedo features which are independent)
             parentMap.set(name, feature);
         }
     });
@@ -395,12 +409,15 @@ function organizeFeatureHierarchy(featureList) {
         // Skip if already processed as a child
         if (processedChildren.has(name)) return;
 
-        // Check if this is a subfeature
-        const subfeatureMatch = name.match(/^(.+?)\s+([A-Z]{1,2})$/);
+        // Check if this is a subfeature with a parent
+        const subfeatureMatch = name.match(/^(.+?)[\s\-]+([A-Z]{1,2}|\d+)$/);
         if (subfeatureMatch) {
             processedChildren.add(name);
             return; // Will be added under parent
         }
+        
+        // Albedo features are independent (don't have parents in the hierarchy)
+        const isAlbedoFeature = (feature.properties.featureType || '').toLowerCase().includes('albedo');
 
         // Add parent feature
         const hierarchyItem = {
@@ -505,8 +522,10 @@ function addFeatureMarkers(featureList) {
         const [lon, lat] = feature.geometry.coordinates;
         const name = feature.properties.name || 'Unnamed';
 
-        // Check if this is a subfeature (has letter suffix like "A", "B", etc.)
-        const isSubfeature = /^(.+?)\s+([A-Z]{1,2})$/.test(name);
+        // Check if this is a subfeature (has letter suffix like "A", "B" or number suffix like "-0", "-1", or is an albedo feature)
+        const hasNameSuffix = /^(.+?)[\s\-]+([A-Z]{1,2}|\d+)$/.test(name);
+        const isAlbedoFeature = (feature.properties.featureType || '').toLowerCase().includes('albedo');
+        const isSubfeature = hasNameSuffix || isAlbedoFeature;
 
         let marker;
 
@@ -540,6 +559,27 @@ function addFeatureMarkers(featureList) {
         });
 
         marker.on('click', () => highlightFeature(feature));
+
+        // Add hover effects for comparison mode
+        marker.on('mouseover', () => {
+            if (comparisonMode && isNotableFeature(feature)) {
+                marker.bindTooltip(`${name} - Click to add to comparison`, {
+                    permanent: false,
+                    direction: 'top',
+                    className: 'comparison-tooltip'
+                }).openTooltip();
+            }
+        });
+
+        marker.on('mouseout', () => {
+            if (comparisonMode) {
+                marker.closeTooltip();
+                marker.bindTooltip(name, {
+                    permanent: false,
+                    direction: 'top'
+                });
+            }
+        });
 
         featureMarkers.push(marker);
     });
@@ -1080,12 +1120,25 @@ function toggleComparisonMode() {
         btn.textContent = 'Cancel Comparison';
         comparisonFeatures = [];
 
-        // Clear any existing highlights
+        // Clear any existing highlights and reset markers
         featureMarkers.forEach(marker => {
-            marker.setStyle({
-                fillColor: '#4a9eff',
-                radius: 4
-            });
+            if (marker.setStyle) {
+                // CircleMarker - reset to default style
+                marker.setStyle({
+                    fillColor: '#4a9eff',
+                    radius: 4,
+                    weight: 1
+                });
+            } else {
+                // Regular marker - reset to default star icon
+                const defaultIcon = L.icon({
+                    iconUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCIgdmlld0JveD0iMCAwIDUwIDUwIj48cGF0aCBmaWxsPSIjRkZDMTMzIiBkPSJNMjUgMi41bDYuNSAxMy41IDE1IC41LTExIDEwLjUgMyAxNC41LTEzLjUtNy0xMy41IDcgMy0xNC41LTExLTEwLjUgMTUtLjV6Ii8+PC9zdmc+',
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12],
+                    popupAnchor: [0, -12]
+                });
+                marker.setIcon(defaultIcon);
+            }
         });
 
         // Show comparison panel
@@ -1096,12 +1149,25 @@ function toggleComparisonMode() {
         btn.textContent = 'Compare Features';
         comparisonFeatures = [];
 
-        // Clear visual indicators
+        // Clear visual indicators and reset markers
         featureMarkers.forEach(marker => {
-            marker.setStyle({
-                fillColor: '#4a9eff',
-                radius: 4
-            });
+            if (marker.setStyle) {
+                // CircleMarker - reset to default style
+                marker.setStyle({
+                    fillColor: '#4a9eff',
+                    radius: 4,
+                    weight: 1
+                });
+            } else {
+                // Regular marker - reset to default star icon
+                const defaultIcon = L.icon({
+                    iconUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCIgdmlld0JveD0iMCAwIDUwIDUwIj48cGF0aCBmaWxsPSIjRkZDMTMzIiBkPSJNMjUgMi41bDYuNSAxMy41IDE1IC41LTExIDEwLjUgMyAxNC41LTEzLjUtNy0xMy41IDcgMy0xNC41LTExLTEwLjUgMTUtLjV6Ii8+PC9zdmc+',
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12],
+                    popupAnchor: [0, -12]
+                });
+                marker.setIcon(defaultIcon);
+            }
         });
 
         // Hide comparison panel
@@ -1125,13 +1191,16 @@ function updateComparisonPanel() {
         } else {
             selectionsEl.innerHTML = comparisonFeatures.map((f, idx) => {
                 const color = idx === 0 ? '#4a9eff' : '#ff9d4a';
+                const colorName = idx === 0 ? 'blue' : 'orange';
                 return `
-                    <div class="comparison-selection-item">
+                    <div class="comparison-selection-item" onclick="removeFromComparison(${idx})" title="Click to remove">
                         <div class="comparison-color-dot" style="background: ${color};"></div>
                         <div>
                             <div class="comparison-selection-name">${f.properties.name}</div>
                             <div class="comparison-selection-type">${f.properties.featureType}</div>
+                            <div class="comparison-selection-hint">Selected as ${colorName} marker</div>
                         </div>
+                        <div class="comparison-remove-btn">×</div>
                     </div>
                 `;
             }).join('');
@@ -1171,11 +1240,26 @@ async function addToComparison(feature) {
         const markerLatLng = marker.getLatLng();
         if (Math.abs(markerLatLng.lat - lat) < 0.001 && Math.abs(markerLatLng.lng - lon) < 0.001) {
             const color = comparisonFeatures.length === 1 ? '#4a9eff' : '#ff9d4a';
-            marker.setStyle({
-                fillColor: color,
-                radius: 8,
-                weight: 2
-            });
+            
+            // Check if this is a circleMarker (has setStyle method)
+            if (marker.setStyle) {
+                marker.setStyle({
+                    fillColor: color,
+                    radius: 8,
+                    weight: 2
+                });
+            } else {
+                // For regular markers (star icons), create a colored star
+                const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50"><path fill="${color}" d="M25 2.5l6.5 13.5 15 .5-11 10.5 3 14.5-13.5-7-13.5 7 3-14.5-11-10.5 15-.5z"/></svg>`;
+                const encodedSvg = btoa(svgContent);
+                const coloredIcon = L.icon({
+                    iconUrl: `data:image/svg+xml;base64,${encodedSvg}`,
+                    iconSize: [32, 32],
+                    iconAnchor: [16, 16],
+                    popupAnchor: [0, -16]
+                });
+                marker.setIcon(coloredIcon);
+            }
         }
     });
 
@@ -1184,6 +1268,71 @@ async function addToComparison(feature) {
 
     // If we have 2 features, they can now click Compare Now button
     // Auto-compare removed - let user click the button
+}
+
+// Remove feature from comparison
+function removeFromComparison(index) {
+    if (index < 0 || index >= comparisonFeatures.length) return;
+
+    const removedFeature = comparisonFeatures[index];
+    comparisonFeatures.splice(index, 1);
+
+    // Reset the visual indicator for the removed feature's marker
+    const [lon, lat] = removedFeature.geometry.coordinates;
+    featureMarkers.forEach(marker => {
+        const markerLatLng = marker.getLatLng();
+        if (Math.abs(markerLatLng.lat - lat) < 0.001 && Math.abs(markerLatLng.lng - lon) < 0.001) {
+            if (marker.setStyle) {
+                // CircleMarker - reset to default style
+                marker.setStyle({
+                    fillColor: '#4a9eff',
+                    radius: 4,
+                    weight: 1
+                });
+            } else {
+                // Regular marker - reset to default star icon
+                const defaultIcon = L.icon({
+                    iconUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCIgdmlld0JveD0iMCAwIDUwIDUwIj48cGF0aCBmaWxsPSIjRkZDMTMzIiBkPSJNMjUgMi41bDYuNSAxMy41IDE1IC41LTExIDEwLjUgMyAxNC41LTEzLjUtNy0xMy41IDcgMy0xNC41LTExLTEwLjUgMTUtLjV6Ii8+PC9zdmc+',
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12],
+                    popupAnchor: [0, -12]
+                });
+                marker.setIcon(defaultIcon);
+            }
+        }
+    });
+
+    // Re-color remaining features (first one should be blue, second should be orange)
+    comparisonFeatures.forEach((feature, idx) => {
+        const [lon, lat] = feature.geometry.coordinates;
+        featureMarkers.forEach(marker => {
+            const markerLatLng = marker.getLatLng();
+            if (Math.abs(markerLatLng.lat - lat) < 0.001 && Math.abs(markerLatLng.lng - lon) < 0.001) {
+                const color = idx === 0 ? '#4a9eff' : '#ff9d4a';
+                
+                if (marker.setStyle) {
+                    marker.setStyle({
+                        fillColor: color,
+                        radius: 8,
+                        weight: 2
+                    });
+                } else {
+                    const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50"><path fill="${color}" d="M25 2.5l6.5 13.5 15 .5-11 10.5 3 14.5-13.5-7-13.5 7 3-14.5-11-10.5 15-.5z"/></svg>`;
+                    const encodedSvg = btoa(svgContent);
+                    const coloredIcon = L.icon({
+                        iconUrl: `data:image/svg+xml;base64,${encodedSvg}`,
+                        iconSize: [32, 32],
+                        iconAnchor: [16, 16],
+                        popupAnchor: [0, -16]
+                    });
+                    marker.setIcon(coloredIcon);
+                }
+            }
+        });
+    });
+
+    // Update comparison panel
+    updateComparisonPanel();
 }
 
 // Show side-by-side comparison of two features
@@ -1266,40 +1415,55 @@ async function showComparison() {
     console.log('Feature 2 timeline:', timeline2);
     console.log('Feature 2 valid events:', validEvents2);
 
-    // Fixed scale: Solar system formation (4.5 Bya) to Present
+    // Logarithmic scale: Solar system formation (4.5 Bya) to Present
     const maxAge = 4.5e9; // 4.5 billion years
-    const minAge = 0; // Present day
+    const minAge = 1e6; // 1 million years (avoid log(0))
 
     console.log('All years:', [...validEvents1.map(e => e.years), ...validEvents2.map(e => e.years)]);
 
+    // Logarithmic position calculation
+    function getLogPosition(years) {
+        if (years <= 0) return 100; // Present day at right edge
+        
+        // Clamp to minimum age to avoid log issues
+        const clampedYears = Math.max(years, minAge);
+        
+        // Log scale: log(clampedYears) mapped from log(minAge) to log(maxAge)
+        const logMin = Math.log10(minAge);
+        const logMax = Math.log10(maxAge);
+        const logYears = Math.log10(clampedYears);
+        
+        // Reverse: left = old (high log value), right = present (low log value)
+        return ((logMax - logYears) / (logMax - logMin)) * 100;
+    }
+
     // Create horizontal timeline graph
     let comparisonHTML = '<div style="margin-bottom: 1rem;">';
-    comparisonHTML += '<h4 style="color: #fff; font-size: 0.9rem; margin-bottom: 1rem;">Timeline Comparison</h4>';
+    comparisonHTML += '<h4 style="color: #fff; font-size: 0.9rem; margin-bottom: 1rem;">Timeline Comparison (Logarithmic Scale)</h4>';
 
     // Horizontal timeline
     const graphWidth = 100; // percentage
     const graphHeight = 300;
     comparisonHTML += `<div style="position: relative; height: ${graphHeight}px; background: #0a0e27; border-radius: 4px; padding: 2rem 1rem; margin-bottom: 1rem; overflow-x: auto;">`;
 
-    // Time axis labels (bottom)
-    const numLabels = 5;
-    for (let i = 0; i <= numLabels; i++) {
-        const years = maxAge * ((numLabels - i) / numLabels); // Reverse: left = old, right = present
-        const position = (i / numLabels) * 100;
+    // Logarithmic time axis labels
+    const logLabels = [4.5e9, 1e9, 100e6, 10e6, 1e6, 0]; // 4.5 Bya, 1 Bya, 100 Mya, 10 Mya, 1 Mya, Present
+    logLabels.forEach(years => {
+        const position = getLogPosition(years);
         comparisonHTML += `
             <div style="position: absolute; left: ${position}%; bottom: 10px; font-size: 0.7rem; color: #888; transform: translateX(-50%);">
                 ${formatYears(years)}
             </div>
             <div style="position: absolute; left: ${position}%; top: 30px; bottom: 40px; width: 1px; background: #2a3f5f;"></div>
         `;
-    }
+    });
 
     // Center horizontal axis line
     comparisonHTML += `<div style="position: absolute; left: 0; right: 0; top: 50%; height: 2px; background: #2a3f5f; transform: translateY(-50%);"></div>`;
 
-    // Plot Feature 1 events (top half)
+    // Plot Feature 1 events (top half) - using logarithmic positioning
     validEvents1.forEach(event => {
-        const position = ((maxAge - event.years) / maxAge) * 100; // Left = old, right = present
+        const position = getLogPosition(event.years);
         comparisonHTML += `
             <div style="position: absolute; left: ${position}%; top: 30px; transform: translateX(-50%); z-index: 10; max-width: 150px;">
                 <div style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem;">
@@ -1314,9 +1478,9 @@ async function showComparison() {
         `;
     });
 
-    // Plot Feature 2 events (bottom half)
+    // Plot Feature 2 events (bottom half) - using logarithmic positioning
     validEvents2.forEach(event => {
-        const position = ((maxAge - event.years) / maxAge) * 100; // Left = old, right = present
+        const position = getLogPosition(event.years);
         comparisonHTML += `
             <div style="position: absolute; left: ${position}%; bottom: 50px; transform: translateX(-50%); z-index: 10; max-width: 150px;">
                 <div style="display: flex; flex-direction: column-reverse; align-items: center; gap: 0.5rem;">
@@ -1458,6 +1622,24 @@ function startRectangleSelection(e) {
     document.getElementById('clearTileBtn').classList.remove('hidden');
 }
 
+// Update selection coordinates display
+function updateSelectionCoords(bounds) {
+    const coordsDisplay = document.getElementById('selectionCoords');
+    if (!bounds) {
+        coordsDisplay.classList.add('hidden');
+        return;
+    }
+
+    coordsDisplay.classList.remove('hidden');
+    coordsDisplay.innerHTML = `
+        <div style="margin-bottom: 0.3rem; font-weight: 600; color: #4a9eff;">Selection Area</div>
+        <div><strong>N:</strong> ${bounds.north.toFixed(2)}°</div>
+        <div><strong>S:</strong> ${bounds.south.toFixed(2)}°</div>
+        <div><strong>E:</strong> ${bounds.east.toFixed(2)}°</div>
+        <div><strong>W:</strong> ${bounds.west.toFixed(2)}°</div>
+    `;
+}
+
 // Update bounds when rectangle is dragged or resized
 function updateRectangleBounds() {
     const latLngBounds = tileBoundsLayer.getBounds();
@@ -1469,8 +1651,10 @@ function updateRectangleBounds() {
         west: latLngBounds.getWest()
     };
 
-    // Update info and filter features
-    displayRectangleInfo(selectedTileBounds);
+    // Update coordinate display
+    updateSelectionCoords(selectedTileBounds);
+
+    // Filter features
     filterFeaturesByTile(selectedTileBounds);
 }
 
@@ -1493,34 +1677,7 @@ function findIntersectingGeographicFeatures(tileBounds) {
     );
 }
 
-// Display rectangle information
-function displayRectangleInfo(bounds) {
-    const tileInfo = document.getElementById('tileInfo');
 
-    // Find intersecting large features
-    const largeFeatures = findIntersectingGeographicFeatures(bounds);
-
-    let html = `
-        <p><strong>Selection Area</strong></p>
-        <p><strong>Bounds:</strong> ${bounds.north.toFixed(2)}°N to ${bounds.south.toFixed(2)}°S, ${bounds.west.toFixed(2)}°W to ${bounds.east.toFixed(2)}°E</p>
-        <p style="font-size: 0.85rem; color: #aaa;">Drag to move, resize handles to adjust</p>
-    `;
-
-    if (largeFeatures.length > 0) {
-        html += `<p><strong>Large Features:</strong></p>`;
-        html += `<ul style="margin-left: 1rem; margin-top: 0.5rem;">`;
-        largeFeatures.forEach(feature => {
-            html += `<li style="margin-bottom: 0.25rem;">
-                <strong>${feature.name}</strong> (${feature.type})<br>
-                <span style="font-size: 0.8rem; color: #aaa;">${feature.description}</span>
-            </li>`;
-        });
-        html += `</ul>`;
-    }
-
-    tileInfo.innerHTML = html;
-    tileInfo.classList.remove('hidden');
-}
 
 // Filter features by tile bounds
 function filterFeaturesByTile(bounds) {
@@ -1577,8 +1734,8 @@ function clearTileSelection() {
     // Reset state
     selectedTileBounds = null;
 
-    // Hide tile info
-    document.getElementById('tileInfo').classList.add('hidden');
+    // Hide coordinate display
+    updateSelectionCoords(null);
 
     // Hide clear button
     document.getElementById('clearTileBtn').classList.add('hidden');

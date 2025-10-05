@@ -4,30 +4,41 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Planetary Map Explorer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Mono:wght@400;500;600;700&family=Zen+Dots&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>Planetary Map Explorer</h1>
-            <div class="controls">
-                <select id="planetSelect">
-                    <option value="">Select a planet...</option>
-                </select>
-                <div class="instruction">Click the map to create a selection area</div>
-                <input type="text" id="featureSearch" placeholder="Search features...">
-                <button id="searchBtn">Search</button>
-                <button id="compareBtn">Compare Features</button>
-                <button id="clearTileBtn" class="hidden">Clear Selection</button>
-            </div>
-        </header>
+        <!-- NASA Logo and Title in top right -->
+        <div class="nasa-header">
+            <img src="https://www.nasa.gov/wp-content/themes/nasa/assets/images/nasa-logo.svg" alt="NASA" class="nasa-logo">
+            <h1 class="nasa-title">NASALink</h1>
+        </div>
 
         <div class="main-content">
-            <div id="map"></div>
+            <div id="map">
+                <!-- Selection coordinates display -->
+                <div id="selectionCoords" class="hidden"></div>
+            </div>
             <div id="sidebar">
+                <!-- Controls moved to sidebar -->
+                <div class="sidebar-controls">
+                    <select id="planetSelect">
+                    </select>
+                    <div class="search-controls">
+                        <input type="text" id="featureSearch" placeholder="Search features...">
+                        <button id="searchBtn">Search</button>
+                    </div>
+                    <div class="action-buttons">
+                        <button id="compareBtn">Compare Features</button>
+                        <button id="clearTileBtn" class="hidden">Clear Selection</button>
+                    </div>
+                </div>
+
                 <h2>Features</h2>
-                <div id="tileInfo" class="hidden"></div>
                 <div id="featureList"></div>
             </div>
         </div>

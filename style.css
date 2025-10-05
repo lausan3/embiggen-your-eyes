@@ -5,9 +5,9 @@
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-    background: #0a0e27;
-    color: #fff;
+    font-family: 'Noto Sans Mono', monospace;
+    background: #2a2a2a;
+    color: #f5f5f5;
 }
 
 .container {
@@ -16,78 +16,152 @@ body {
     flex-direction: column;
 }
 
-header {
-    background: #1a1f3a;
-    padding: 1rem 2rem;
-    border-bottom: 2px solid #2a3f5f;
-}
-
-header h1 {
-    font-size: 1.5rem;
-    margin-bottom: 1rem;
-    color: #4a9eff;
-}
-
-.controls {
+/* NASA Header - Top Left */
+.nasa-header {
+    position: absolute;
+    top: 1.5rem;
+    left: 1.5rem;
     display: flex;
-    gap: 1rem;
     align-items: center;
+    gap: 1rem;
+    z-index: 1000;
 }
 
-#planetSelect,
-#featureSearch,
-#searchBtn {
-    padding: 0.5rem 1rem;
-    border: 1px solid #2a3f5f;
-    background: #0a0e27;
+.nasa-logo {
+    height: 50px;
+    width: auto;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+}
+
+.nasa-title {
+    font-family: 'Zen Dots', cursive;
+    font-size: 2rem;
+    margin: 0;
     color: #fff;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+    letter-spacing: 2px;
+}
+
+/* Sidebar Controls */
+.sidebar-controls {
+    padding: 1rem;
+    background: #3a3a3a;
+    margin: -1rem -1rem 1rem -1rem;
+}
+
+.sidebar-controls select,
+.sidebar-controls input,
+.sidebar-controls button {
+    width: 100%;
+    padding: 0.6rem 1rem;
+    border: none;
+    background: #4a4a4a;
+    color: #f5f5f5;
     border-radius: 4px;
     font-size: 0.9rem;
 }
 
-#planetSelect {
-    min-width: 200px;
+.sidebar-controls select {
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=US-ASCII,<svg xmlns='http://www.w3.org/2000/svg' width='4' height='5'><path fill='%23f5f5f5' d='M2 0L0 2h4zm0 5L0 3h4z'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 1rem center;
+    background-size: 12px;
+    padding-right: 2.5rem;
+    cursor: pointer;
 }
 
-#featureSearch {
+.sidebar-controls select:hover {
+    background-color: #5a5a5a;
+}
+
+.sidebar-controls select option {
+    background: #4a4a4a;
+    color: #f5f5f5;
+    padding: 0.5rem;
+}
+
+#planetSelect {
+    margin-bottom: 0.75rem;
+}
+
+.search-controls {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.search-controls input {
+    flex: 1;
+    width: auto;
+}
+
+.search-controls button {
+    width: auto;
+    padding: 0.6rem 1.5rem;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.action-buttons button {
     flex: 1;
 }
 
 #searchBtn,
 #clearTileBtn,
 #compareBtn {
-    background: #4a9eff;
+    background: #d0d0d0;
+    color: #000;
     cursor: pointer;
     border: none;
     font-weight: 600;
+    transition: all 0.2s;
 }
 
 #searchBtn:hover,
 #clearTileBtn:hover,
 #compareBtn:hover {
-    background: #3a8eef;
+    background: #e0e0e0;
 }
 
 #compareBtn.active {
-    background: #9d4edd;
+    background: #a0a0a0;
+    color: #000;
 }
 
 #compareBtn.active:hover {
-    background: #8d3ecd;
+    background: #b0b0b0;
 }
 
 #clearTileBtn {
-    background: #ff4a4a;
+    background: #d0d0d0;
+    color: #000;
 }
 
 #clearTileBtn:hover {
-    background: #ef3a3a;
+    background: #e0e0e0;
 }
 
-.controls .instruction {
-    color: #4a9eff;
-    font-size: 0.9rem;
-    font-weight: 500;
+/* Selection coordinates display - Bottom Left */
+#selectionCoords {
+    position: absolute;
+    bottom: 1rem;
+    left: 1rem;
+    background: rgba(58, 58, 58, 0.95);
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    z-index: 1000;
+    font-size: 0.85rem;
+    color: #f5f5f5;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+    min-width: 200px;
+}
+
+#selectionCoords.hidden {
+    display: none;
 }
 
 .main-content {
@@ -103,11 +177,10 @@ header h1 {
 }
 
 #sidebar {
-    width: 400px;
-    min-width: 300px;
-    max-width: 800px;
-    background: #1a1f3a;
-    border-left: 2px solid #2a3f5f;
+    width: 500px;
+    min-width: 400px;
+    max-width: 900px;
+    background: #3a3a3a;
     overflow-y: auto;
     padding: 1rem;
     position: relative;
@@ -122,43 +195,41 @@ header h1 {
     top: 0;
     bottom: 0;
     width: 4px;
-    background: #2a3f5f;
+    background: #5a5a5a;
     cursor: ew-resize;
 }
 
 #sidebar:hover::before {
-    background: #4a9eff;
+    background: #6a6a6a;
 }
 
 #sidebar h2 {
     font-size: 1.2rem;
     margin-bottom: 1rem;
-    color: #4a9eff;
+    color: #1e3a8a;
 }
 
 .feature-item {
     padding: 0.75rem;
     margin-bottom: 0.5rem;
-    background: #0a0e27;
+    background: #4a4a4a;
     border-radius: 4px;
     cursor: pointer;
-    border: 1px solid #2a3f5f;
     transition: all 0.2s;
 }
 
 .feature-item:hover {
-    background: #2a3f5f;
-    border-color: #4a9eff;
+    background: #5a5a5a;
 }
 
 .feature-item h4 {
-    color: #4a9eff;
+    color: #1e3a8a;
     margin-bottom: 0.25rem;
 }
 
 .feature-item p {
     font-size: 0.85rem;
-    color: #aaa;
+    color: #d0d0d0;
 }
 
 #featureDetails {
@@ -239,23 +310,6 @@ header h1 {
 }
 
 
-#tileInfo {
-    background: #0a0e27;
-    padding: 0.75rem;
-    margin-bottom: 1rem;
-    border-radius: 4px;
-    border: 1px solid #4a9eff;
-}
-
-#tileInfo p {
-    font-size: 0.85rem;
-    margin-bottom: 0.25rem;
-}
-
-#tileInfo strong {
-    color: #4a9eff;
-}
-
 .hidden {
     display: none;
 }
@@ -263,16 +317,15 @@ header h1 {
 /* Comparison Panel */
 #comparisonPanel {
     position: fixed;
-    top: 50%;
+    bottom: 2rem;
     left: 50%;
-    transform: translate(-50%, -50%);
-    background: #1a1f3a;
-    border: 3px solid #9d4edd;
+    transform: translateX(-50%);
+    background: #3a3a3a;
     border-radius: 12px;
     padding: 1.5rem;
     min-width: 350px;
     max-width: 500px;
-    box-shadow: 0 8px 32px rgba(157, 78, 221, 0.3);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     z-index: 2000;
 }
 
@@ -282,11 +335,10 @@ header h1 {
     align-items: center;
     margin-bottom: 1rem;
     padding-bottom: 0.75rem;
-    border-bottom: 2px solid #9d4edd;
 }
 
 .comparison-header h3 {
-    color: #9d4edd;
+    color: #1e3a8a;
     font-size: 1.3rem;
     margin: 0;
 }
@@ -320,13 +372,13 @@ header h1 {
 }
 
 .comparison-progress {
-    background: #0a0e27;
+    background: #4a4a4a;
     padding: 0.75rem;
     border-radius: 6px;
     text-align: center;
     font-size: 1.1rem;
     font-weight: 600;
-    color: #9d4edd;
+    color: #f5f5f5;
     margin-bottom: 1rem;
 }
 
@@ -339,15 +391,20 @@ header h1 {
     align-items: center;
     gap: 0.75rem;
     padding: 0.75rem;
-    background: #0a0e27;
+    background: #4a4a4a;
     border-radius: 6px;
     margin-bottom: 0.5rem;
-    border: 2px solid transparent;
     transition: all 0.2s;
+    cursor: pointer;
+    position: relative;
 }
 
 .comparison-selection-item:hover {
-    border-color: #9d4edd;
+    background: #5a5a5a;
+}
+
+.comparison-selection-item:hover .comparison-remove-btn {
+    opacity: 1;
 }
 
 .comparison-color-dot {
@@ -359,21 +416,50 @@ header h1 {
 
 .comparison-selection-name {
     flex: 1;
-    color: #fff;
+    color: #f5f5f5;
     font-weight: 500;
 }
 
 .comparison-selection-type {
     font-size: 0.8rem;
-    color: #aaa;
+    color: #d0d0d0;
+}
+
+.comparison-selection-hint {
+    font-size: 0.75rem;
+    color: #b0b0b0;
+    font-style: italic;
+}
+
+.comparison-remove-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    width: 24px;
+    height: 24px;
+    background: #ff4a4a;
+    color: #fff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    font-weight: bold;
+    opacity: 0;
+    transition: all 0.2s;
+}
+
+.comparison-remove-btn:hover {
+    background: #ef3a3a;
+    transform: scale(1.1);
 }
 
 #compareNowBtn {
     width: 100%;
     padding: 0.75rem;
     margin-top: 1rem;
-    background: #9d4edd;
-    color: #fff;
+    background: #d0d0d0;
+    color: #000;
     border: none;
     border-radius: 6px;
     font-size: 1rem;
@@ -383,9 +469,9 @@ header h1 {
 }
 
 #compareNowBtn:hover {
-    background: #8d3ecd;
+    background: #e0e0e0;
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(157, 78, 221, 0.4);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 /* Hierarchical subfeatures */
@@ -437,5 +523,15 @@ header h1 {
     font-size: 20px;
     text-align: center;
     line-height: 20px;
+}
+
+/* Comparison mode tooltip */
+.comparison-tooltip {
+    background: #9d4edd !important;
+    color: #fff !important;
+    border: 2px solid #fff !important;
+    border-radius: 6px !important;
+    font-weight: 600 !important;
+    font-size: 0.85rem !important;
 }
 
