@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useRef, useMemo, useState, useEffect, type ErrorInfo } from "react"
+import React, { useRef, useMemo, useState, useEffect, useCallback, type ErrorInfo } from "react"
 import { Canvas, useFrame, useThree } from "@react-three/fiber"
 import { OrbitControls, Html, Stars, useTexture } from "@react-three/drei"
 import * as THREE from "three"
@@ -8,6 +8,44 @@ import { latLonToVector3 } from "@/lib/utils/coordinates"
 import { PLANETARY_CONFIG as CONFIG } from "@/lib/config"
 import { createSelectionBox, getDefaultAreaBounds, filterFeaturesByBounds, cartesianToSpherical, type BoundingBox } from "@/lib/area-selection"
 import { getVisibleFeatures, getFeaturesByZoom } from "@/lib/feature-visibility"
+
+// Hook to enhance texture quality dynamically based on camera distance
+function useDynamicTextureQuality(originalTextureUrl: string) {
+  const { camera, gl } = useThree()
+  const [quality, setQuality] = useState('medium')
+  const lastQualityCheck = useRef(0)
+  
+  useFrame(() => {
+    if (!camera) return
+    
+    // Throttle quality checks to every 10 frames for performance
+    if (lastQualityCheck.current % 10 !== 0) {
+      lastQualityCheck.current++
+      return
+    }
+    lastQualityCheck.current++
+    
+    // Calculate distance from camera to origin (globe center)
+    const distance = camera.position.length()
+    
+    // Map camera distance to quality level
+    let newQuality = 'medium'
+    if (distance < 3.5) {
+      newQuality = 'high'
+    } else if (distance < 5.5) {
+      newQuality = 'medium' 
+    } else {
+      newQuality = 'low'
+    }
+    
+    // Only update if quality actually changed
+    if (newQuality !== quality) {
+      setQuality(newQuality)
+    }
+  })
+  
+  return { quality }
+}
 
 interface FamousFeature {
   name: string
@@ -72,6 +110,7 @@ interface Globe3DProps {
   onComparisonAdd?: (feature: FamousFeature) => void
   comparisonFeatures?: FamousFeature[]
   areaSelectionMode?: boolean
+  onMapClick?: () => void
 }
 
 const FeatureMarker = React.memo(function FeatureMarker({
@@ -109,7 +148,7 @@ const FeatureMarker = React.memo(function FeatureMarker({
 
   useFrame(() => {
     if (meshRef.current) {
-      const scale = hovered || isHighlighted ? 1.5 : 1
+      const scale = hovered || isHighlighted ? 1.8 : 1.2
       meshRef.current.scale.lerp(new THREE.Vector3(scale, scale, scale), 0.1)
     }
   })
@@ -121,6 +160,7 @@ const FeatureMarker = React.memo(function FeatureMarker({
 
   return (
     <group position={position}>
+      {/* Single mesh with larger click area but smaller visual */}
       <mesh
         ref={meshRef}
         onClick={(e) => {
@@ -137,7 +177,7 @@ const FeatureMarker = React.memo(function FeatureMarker({
         onPointerOut={handlePointerOut}
         onPointerLeave={handlePointerOut}
       >
-        <sphereGeometry args={[0.02, 8, 8]} />
+        <sphereGeometry args={[0.025, 8, 8]} />
         <meshBasicMaterial 
           color={
             isInComparison 
@@ -145,23 +185,28 @@ const FeatureMarker = React.memo(function FeatureMarker({
               : isHighlighted 
                 ? "#00FFFF" 
                 : "#FFFF00"
-          } 
+          }
+          transparent={true}
+          opacity={0.9}
         />
       </mesh>
+      
       {(hovered || isHighlighted) && !showDetailsModal && (
-        <Html distanceFactor={25} position={[0, 0.06, 0]}>
+        <Html distanceFactor={30} position={[0, 0.04, 0]}>
           <div
-            className="px-0.5 py-0.5 rounded whitespace-nowrap pointer-events-none"
+            className="px-1 py-1 rounded shadow pointer-events-none"
             style={{
-              background: "rgba(26, 26, 26, 0.8)",
+              background: "rgba(20, 20, 20, 0.9)",
               color: "#ffffff",
-              border: "1px solid rgba(212, 165, 116, 0.1)",
-              boxShadow: "0 1px 2px rgba(0, 0, 0, 0.2)",
-              fontSize: "6px",
-              lineHeight: "1",
+              border: "1px solid rgba(255, 255, 255, 0.2)",
+              fontSize: "8px",
+              fontWeight: "400",
+              lineHeight: "1.2",
               maxWidth: "80px",
               textOverflow: "ellipsis",
-              overflow: "hidden"
+              overflow: "hidden",
+              whiteSpace: "nowrap",
+              fontFamily: "Inter, system-ui, sans-serif"
             }}
           >
             {feature.name}
@@ -178,23 +223,23 @@ const GridLines = React.memo(function GridLines() {
     const vertices: number[] = []
     const radius = 2.02 // Slightly larger than planet radius
 
-    // Latitude lines (horizontal circles)
-    for (let lat = -80; lat <= 80; lat += 20) {
+    // Latitude lines (horizontal circles) - fewer lines, lower resolution
+    for (let lat = -60; lat <= 60; lat += 30) {
       const theta = THREE.MathUtils.degToRad(90 - lat)
       const circleRadius = radius * Math.sin(theta)
       const y = radius * Math.cos(theta)
 
-      for (let i = 0; i <= 64; i++) {
-        const angle = (i / 64) * Math.PI * 2
+      for (let i = 0; i <= 32; i++) { // Reduced from 64 to 32
+        const angle = (i / 32) * Math.PI * 2
         vertices.push(circleRadius * Math.cos(angle), y, circleRadius * Math.sin(angle))
       }
     }
 
-    // Longitude lines (vertical circles)
-    for (let lon = 0; lon < 360; lon += 30) {
+    // Longitude lines (vertical circles) - fewer lines, lower resolution
+    for (let lon = 0; lon < 360; lon += 45) { // Reduced from 30 to 45 degrees
       const phi = THREE.MathUtils.degToRad(lon)
-      for (let i = 0; i <= 64; i++) {
-        const theta = (i / 64) * Math.PI
+      for (let i = 0; i <= 32; i++) { // Reduced from 64 to 32
+        const theta = (i / 32) * Math.PI
         vertices.push(
           radius * Math.sin(theta) * Math.cos(phi),
           radius * Math.cos(theta),
@@ -209,7 +254,7 @@ const GridLines = React.memo(function GridLines() {
 
   return (
     <lineSegments geometry={gridGeometry}>
-      <lineBasicMaterial color="#FFD700" opacity={0.8} transparent linewidth={2} />
+      <lineBasicMaterial color="#FFD700" opacity={0.6} transparent linewidth={1} />
     </lineSegments>
   )
 })
@@ -301,7 +346,7 @@ const AreaSelectionHandler = React.memo(function AreaSelectionHandler({
     
     // Create a sphere at radius 2 to match the planet surface
     const sphere = new THREE.Mesh(
-      new THREE.SphereGeometry(2, 32, 32),
+      new THREE.SphereGeometry(2, 16, 16), // Reduced from 32x32 to 16x16
       new THREE.MeshBasicMaterial()
     )
     
@@ -397,7 +442,7 @@ const AreaSelectionHandler = React.memo(function AreaSelectionHandler({
         onPointerUp={handlePointerUp}
         visible={false}
       >
-        <sphereGeometry args={[2.1, 64, 64]} />
+        <sphereGeometry args={[2.1, 32, 32]} />
         <meshBasicMaterial transparent opacity={0} />
       </mesh>
       
@@ -450,18 +495,26 @@ const PlanetSphere = React.memo(function PlanetSphere({
   const groupRef = useRef<THREE.Group>(null)
   const targetRotation = useRef<{ x: number; y: number } | null>(null)
   const hasNotifiedCompletion = useRef(false)
+  
+  // Use static texture settings for performance
   const texture = useTexture(textureUrl)
-  const { camera } = useThree()
+  const { camera, gl } = useThree()
 
   useEffect(() => {
     if (texture) {
-      texture.anisotropy = 16
+      // Static texture settings for better performance
+      const maxAnisotropy = gl.capabilities.getMaxAnisotropy()
+      texture.anisotropy = Math.min(8, maxAnisotropy)
       texture.minFilter = THREE.LinearMipmapLinearFilter
       texture.magFilter = THREE.LinearFilter
       texture.wrapS = THREE.RepeatWrapping
       texture.wrapT = THREE.ClampToEdgeWrapping
+      texture.generateMipmaps = true
+      texture.premultiplyAlpha = false
+      texture.unpackAlignment = 1
+      texture.needsUpdate = true
     }
-  }, [texture])
+  }, [texture, gl])
 
   useEffect(() => {
     if (selectedFeature && groupRef.current) {
@@ -517,12 +570,36 @@ const PlanetSphere = React.memo(function PlanetSphere({
   })
 
   const [cameraPosition, setCameraPosition] = useState(camera.position.clone())
+  const [geometryDetail, setGeometryDetail] = useState({ widthSegments: 64, heightSegments: 64 })
+  const lastGeometryCheck = useRef(0)
   
   useFrame(() => {
-    // Track camera changes for dynamic feature filtering
+    // Track camera changes for dynamic feature filtering only
     const newPosition = camera.position.clone()
     if (newPosition.distanceTo(cameraPosition) > 0.1) {
       setCameraPosition(newPosition)
+      
+      // Throttle geometry LOD updates to every 30 frames and simplify levels
+      if (lastGeometryCheck.current % 30 === 0) {
+        const distance = newPosition.length()
+        let widthSegments, heightSegments
+        
+        if (distance < 4) {
+          // Close - high detail
+          widthSegments = 64
+          heightSegments = 64
+        } else {
+          // Far - lower detail for performance
+          widthSegments = 32
+          heightSegments = 32
+        }
+        
+        // Only update if geometry detail actually changed
+        if (widthSegments !== geometryDetail.widthSegments) {
+          setGeometryDetail({ widthSegments, heightSegments })
+        }
+      }
+      lastGeometryCheck.current++
     }
   })
 
@@ -556,7 +633,7 @@ const PlanetSphere = React.memo(function PlanetSphere({
   return (
     <group ref={groupRef}>
       <mesh>
-        <sphereGeometry args={[2, 128, 128]} />
+        <sphereGeometry args={[2, geometryDetail.widthSegments, geometryDetail.heightSegments]} />
         <meshStandardMaterial
           map={texture}
           color="#ffffff"
@@ -564,6 +641,8 @@ const PlanetSphere = React.memo(function PlanetSphere({
           metalness={0.1}
           emissive="#111111"
           emissiveIntensity={0.2}
+          transparent={false}
+          alphaTest={0.1}
         />
       </mesh>
       <GridLines />
@@ -571,6 +650,7 @@ const PlanetSphere = React.memo(function PlanetSphere({
         <AreaSelectionBox bounds={areaSelection.bounds} visible={areaSelection.visible} />
       )}
       <AreaSelectionHandler onAreaSelect={onAreaSelect} isActive={!!onAreaSelect} planet={planet} />
+      
       {filteredFeatures.map((feature, index) => {
         const comparisonIndex = comparisonFeatures?.findIndex(f => f.name === feature.name)
         const isInComparison = comparisonIndex !== undefined && comparisonIndex >= 0
@@ -657,10 +737,15 @@ const Scene = React.memo(function Scene({
         enablePan={true}
         enableZoom={true}
         enableRotate={!areaSelectionMode}
-        minDistance={3}
-        maxDistance={10}
+        minDistance={2.5}
+        maxDistance={12}
         rotateSpeed={0.5}
-        zoomSpeed={0.8}
+        zoomSpeed={1.2}
+        panSpeed={0.8}
+        enableDamping={true}
+        dampingFactor={0.05}
+        screenSpacePanning={false}
+        maxPolarAngle={Math.PI}
       />
     </>
   )
@@ -680,17 +765,30 @@ const Globe3D = React.memo(function Globe3D({
   onComparisonAdd,
   comparisonFeatures,
   areaSelectionMode,
+  onMapClick,
 }: Globe3DProps) {
   return (
     <ErrorBoundary>
       <div className="w-full h-full">
         <Canvas
-          camera={{ position: [0, 0, 5], fov: 45 }}
+          camera={{ position: [0, 0, 5], fov: 45, near: 0.1, far: 1000 }}
           style={{ background: "#0a0a0a" }}
-          gl={{ antialias: true, alpha: false }}
+          gl={{ 
+            antialias: true, 
+            alpha: false, 
+            powerPreference: "high-performance",
+            stencil: false,
+            depth: true
+          }}
           dpr={[1, 2]}
+          onPointerMissed={onMapClick}
           onCreated={({ gl }) => {
             gl.setClearColor(0x0a0a0a)
+            gl.shadowMap.enabled = true
+            gl.shadowMap.type = THREE.PCFSoftShadowMap
+            gl.outputColorSpace = THREE.SRGBColorSpace
+            gl.toneMapping = THREE.ACESFilmicToneMapping
+            gl.toneMappingExposure = 1.2
           }}
         >
           <Scene
