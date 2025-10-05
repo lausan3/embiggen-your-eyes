@@ -15,9 +15,10 @@
                 <select id="planetSelect">
                     <option value="">Select a planet...</option>
                 </select>
-                <div class="instruction">Click on a tile to load features</div>
+                <div class="instruction">Click the map to create a selection area</div>
                 <input type="text" id="featureSearch" placeholder="Search features...">
                 <button id="searchBtn">Search</button>
+                <button id="compareBtn">Compare Features</button>
                 <button id="clearTileBtn" class="hidden">Clear Selection</button>
             </div>
         </header>
@@ -36,13 +37,31 @@
             <h3 id="featureName"></h3>
             <div id="featureInfo"></div>
         </div>
+
+        <!-- Comparison Mode Panel -->
+        <div id="comparisonPanel" class="hidden">
+            <div class="comparison-header">
+                <h3>Comparison Mode</h3>
+                <button id="cancelComparison">&times;</button>
+            </div>
+            <p class="comparison-instruction">Select 2 notable features to compare their timelines</p>
+            <div class="comparison-progress">
+                <span id="comparisonCount">0</span>/2 selected
+            </div>
+            <div id="comparisonSelections"></div>
+            <button id="compareNowBtn" class="hidden">Compare Now</button>
+        </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-editable@1.2.0/src/Leaflet.Editable.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="config.js"></script>
     <script src="geographic-features.js"></script>
     <script src="famous-features.js"></script>
+    <script src="timeline_data.js"></script>
+    <script src="chronology_mapper.js"></script>
+    <script src="feature_analyzer.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

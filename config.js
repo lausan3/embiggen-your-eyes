@@ -8,7 +8,7 @@ const PLANETARY_CONFIG = {
         center: [0, 0],
         minZoom: 0,
         maxZoom: 8,
-        usgs_name: "Moon",
+        usgs_name: "MOON",
         kmz_url: "data/MOON_nomenclature_center_pts.kmz"
     },
     Mars: {
@@ -18,7 +18,7 @@ const PLANETARY_CONFIG = {
         center: [0, 0],
         minZoom: 0,
         maxZoom: 7,
-        usgs_name: "Mars",
+        usgs_name: "MARS",
         kmz_url: "data/MARS_nomenclature_center_pts.kmz"
     },
     Europa: {

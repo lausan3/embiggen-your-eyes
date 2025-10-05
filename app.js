@@ -7,9 +7,19 @@ let currentHighlight = null;
 let selectedTileBounds = null;
 let tileBoundsLayer = null;
 let regionLayers = [];  // Store region boundary rectangles
+let timelineCache = {};  // Cache for fetched timelines
+let comparisonMode = false;  // Track if in comparison mode
+let comparisonFeatures = [];  // Store selected features for comparison
+let featureAnalyzer = null;  // AI-based feature analyzer
 
 // Initialize the application
 function init() {
+    // Initialize AI feature analyzer
+    if (typeof FeatureAnalyzer !== 'undefined') {
+        featureAnalyzer = new FeatureAnalyzer();
+        console.log('✓ Feature analyzer initialized');
+    }
+
     setupPlanetSelector();
     initMap();
     setupEventListeners();
@@ -36,13 +46,14 @@ function initMap() {
         maxZoom: 8,
         attributionControl: true,
         maxBounds: [[-90, -180], [90, 180]],
-        maxBoundsViscosity: 1.0
+        maxBoundsViscosity: 1.0,
+        editable: true
     });
 
     map.attributionControl.addAttribution('Tiles: NASA/USGS');
 
-    // Enable tile selection by default
-    map.on('click', handleTileSelection);
+    // Enable draggable rectangle selection
+    map.on('click', startRectangleSelection);
 }
 
 // Load a specific planet
@@ -433,34 +444,747 @@ function highlightFeature(feature) {
     showFeatureDetails(feature);
 }
 
-// Show feature details panel
-function showFeatureDetails(feature) {
-    const panel = document.getElementById('featureDetails');
-    const nameEl = document.getElementById('featureName');
-    const infoEl = document.getElementById('featureInfo');
+// Determine if a feature is notable enough to fetch timeline
+function isNotableFeature(feature) {
+    const props = feature.properties;
 
+    // Check if in famous features
+    if (props.source === 'famous') return true;
+
+    // Large features (>50km diameter)
+    if (props.diameter && props.diameter > 50) return true;
+
+    // Important feature types
+    const notableTypes = ['Mons', 'Tholus', 'Patera', 'Planum', 'Mare', 'Vallis', 'Chasma'];
+    if (notableTypes.some(type => props.featureType?.includes(type))) return true;
+
+    return false;
+}
+
+// Fetch timeline from Wikipedia
+async function fetchWikipediaTimeline(featureName, planetName) {
+    try {
+        // Search for the Wikipedia page
+        const searchUrl = `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(featureName)}&limit=1&format=json&origin=*`;
+        const searchResponse = await fetch(searchUrl);
+        const searchData = await searchResponse.json();
+
+        if (!searchData[1] || searchData[1].length === 0) {
+            return null; // No Wikipedia page found
+        }
+
+        const pageTitle = searchData[1][0];
+
+        // Get page with revisions to access wikitext (for infobox parsing)
+        const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(pageTitle)}&prop=revisions&rvprop=content&rvslots=main&format=json&origin=*`;
+        const wikiResponse = await fetch(wikiUrl);
+        const wikiData = await wikiResponse.json();
+
+        const wikiPages = wikiData.query.pages;
+        const wikiPageId = Object.keys(wikiPages)[0];
+        const wikitext = wikiPages[wikiPageId]?.revisions?.[0]?.slots?.main?.['*'] || '';
+
+        // Get FULL page text (not just intro) to find more detailed dates
+        const pageUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(pageTitle)}&prop=extracts&explaintext=true&format=json&origin=*`;
+        const pageResponse = await fetch(pageUrl);
+        const pageData = await pageResponse.json();
+
+        const pages = pageData.query.pages;
+        const pageId = Object.keys(pages)[0];
+        const fullText = pages[pageId].extract;
+
+        // Also get just the intro for description
+        const introUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(pageTitle)}&prop=extracts&exintro=true&explaintext=true&format=json&origin=*`;
+        const introResponse = await fetch(introUrl);
+        const introData = await introResponse.json();
+        const introPages = introData.query.pages;
+        const introPageId = Object.keys(introPages)[0];
+        const intro = introPages[introPageId].extract;
+
+        // Parse infobox data
+        const infoboxData = parseInfobox(wikitext);
+
+        return {
+            source: 'wikipedia',
+            pageTitle: pageTitle,
+            extract: intro,
+            fullText: fullText,
+            infobox: infoboxData,
+            url: searchData[3][0]
+        };
+    } catch (error) {
+        console.error('Wikipedia fetch error:', error);
+        return null;
+    }
+}
+
+// Parse Wikipedia infobox for structured data
+function parseInfobox(wikitext) {
+    const data = {};
+
+    // Look for infobox
+    const infoboxMatch = wikitext.match(/\{\{Infobox[^}]*\n([\s\S]*?)\n\}\}/i);
+    if (!infoboxMatch) return data;
+
+    const infoboxContent = infoboxMatch[1];
+
+    // Parse age field
+    const ageMatch = infoboxContent.match(/\|\s*age\s*=\s*([^\n|]+)/i);
+    if (ageMatch) {
+        data.age = ageMatch[1].trim();
+    }
+
+    // Parse last eruption field
+    const eruptionMatch = infoboxContent.match(/\|\s*last[_\s]eruption\s*=\s*([^\n|]+)/i);
+    if (eruptionMatch) {
+        data.lastEruption = eruptionMatch[1].trim();
+    }
+
+    // Parse formed field
+    const formedMatch = infoboxContent.match(/\|\s*formed\s*=\s*([^\n|]+)/i);
+    if (formedMatch) {
+        data.formed = formedMatch[1].trim();
+    }
+
+    return data;
+}
+
+// Parse timeline events from Wikipedia data or generate generic timeline
+async function generateTimeline(feature, wikiData) {
+    const props = feature.properties;
+    const featureName = props.name;
+    const featureType = props.featureType || 'Unknown';
+    const diameter = props.diameter;
+
+    // Check structured timeline data first (highest priority)
+    if (typeof TIMELINE_DATA !== 'undefined' &&
+        TIMELINE_DATA[currentPlanet?.usgs_name] &&
+        TIMELINE_DATA[currentPlanet.usgs_name][featureName]) {
+
+        const structuredTimeline = TIMELINE_DATA[currentPlanet.usgs_name][featureName];
+        console.log(`Using structured timeline data for ${featureName}`);
+
+        // Return structured data (already has years property)
+        return structuredTimeline.map(event => ({
+            phase: event.phase,
+            timeframe: formatYearsToTimeframe(event.years),
+            description: event.description,
+            source: event.source,
+            years: event.years
+        }));
+    }
+
+    // If we have Wikipedia data, try to parse it
+    if (wikiData && wikiData.fullText) {
+        const extract = wikiData.extract;
+        const fullText = wikiData.fullText;
+        const infobox = wikiData.infobox || {};
+        const events = [];
+
+        console.log('Infobox data:', infobox);
+
+        // 1. Formation event - prioritize infobox, then full text
+        let formationTimeStr = null;
+        let formationDesc = `${featureType} formation`;
+
+        // Try infobox first
+        if (infobox.age) {
+            formationTimeStr = infobox.age;
+            formationDesc = `Formed ${infobox.age}`;
+        } else if (infobox.formed) {
+            formationTimeStr = infobox.formed;
+            formationDesc = `Formed ${infobox.formed}`;
+        } else {
+            // Search full text
+            const formationMatch = fullText.match(/formed?\s+(?:about|around|approximately)?\s*([\d.]+)\s*(billion|million|thousand)\s*years?\s*ago/i);
+            if (formationMatch) {
+                formationTimeStr = `~${formationMatch[1]} ${formationMatch[2]} years ago`;
+                const matchIndex = fullText.indexOf(formationMatch[0]);
+                const contextStart = Math.max(0, matchIndex - 50);
+                const contextEnd = Math.min(fullText.length, matchIndex + 100);
+                formationDesc = fullText.substring(contextStart, contextEnd).trim().split('.')[0];
+            } else {
+                // Use estimated formation time
+                formationTimeStr = getEstimatedFormationTime(featureType, currentPlanet?.usgs_name);
+            }
+        }
+
+        events.push({
+            phase: 'Formation',
+            timeframe: formationTimeStr,
+            description: formationDesc,
+            source: infobox.age || infobox.formed ? 'Wikipedia (Infobox)' : 'Wikipedia',
+            years: parseTimeframeToYears(formationTimeStr)
+        });
+
+        // 2. Major activity/eruption events - prioritize infobox
+        if (infobox.lastEruption) {
+            events.push({
+                phase: 'Last Eruption',
+                timeframe: infobox.lastEruption,
+                description: `Last eruption: ${infobox.lastEruption}`,
+                source: 'Wikipedia (Infobox)',
+                years: parseTimeframeToYears(infobox.lastEruption)
+            });
+        } else {
+            // Search full text for eruptions
+            const eruptions = [
+                fullText.match(/last\s+(?:eruption|erupted|active|activity)\s+(?:was\s+)?(?:about|around|approximately)?\s*([\d.]+)\s*(billion|million|thousand)\s*years?\s*ago/i),
+                fullText.match(/(?:eruption|erupted|active|activity)\s+(?:about|around|approximately)?\s*([\d.]+)\s*(billion|million|thousand)\s*years?\s*ago/i),
+                fullText.match(/volcanic\s+activity.*?([\d.]+)\s*(billion|million|thousand)\s*years?\s*ago/i)
+            ].filter(m => m !== null);
+
+            if (eruptions.length > 0) {
+                // Use the most recent (smallest number)
+                const mostRecent = eruptions.reduce((prev, curr) => {
+                    const prevNum = parseFloat(prev[1]);
+                    const currNum = parseFloat(curr[1]);
+                    return currNum < prevNum ? curr : prev;
+                });
+
+                const timeStr = `~${mostRecent[1]} ${mostRecent[2]} years ago`;
+                const matchIndex = fullText.indexOf(mostRecent[0]);
+                const contextStart = Math.max(0, matchIndex - 50);
+                const contextEnd = Math.min(fullText.length, matchIndex + 100);
+                const context = fullText.substring(contextStart, contextEnd).trim();
+
+                events.push({
+                    phase: 'Last Major Activity',
+                    timeframe: timeStr,
+                    description: context.split('.')[0],
+                    source: 'Wikipedia',
+                    years: parseTimeframeToYears(timeStr)
+                });
+            } else if (fullText.match(/volcan|erupt|lava/i)) {
+                // Estimate if no specific date found
+                const formationTime = getEstimatedFormationTime(featureType, currentPlanet?.usgs_name);
+                const formationYears = parseTimeframeToYears(formationTime);
+                if (formationYears && formationYears > 1e9) {
+                    const midTime = formationYears / 2;
+                    const timeframe = `~${(midTime / 1e9).toFixed(1)} billion years ago`;
+                    events.push({
+                        phase: 'Major Activity',
+                        timeframe: timeframe,
+                        description: 'Volcanic activity period',
+                        source: 'Estimated',
+                        years: parseTimeframeToYears(timeframe)
+                    });
+                }
+            }
+        }
+
+        // 3. Current state
+        events.push({
+            phase: 'Current State',
+            timeframe: 'Present day',
+            description: extract.split('.')[0] + '.',
+            source: 'Wikipedia',
+            url: wikiData.url,
+            years: 0
+        });
+
+        return events;
+    }
+
+    // Use AI feature analyzer if available (scientific model-based)
+    if (featureAnalyzer) {
+        console.log(`Using AI analyzer for ${featureName}`);
+        const analyzedEvents = featureAnalyzer.analyzeFeature(feature, currentPlanet?.usgs_name);
+
+        if (analyzedEvents && analyzedEvents.length > 0) {
+            return analyzedEvents.map(event => ({
+                phase: event.phase,
+                timeframe: formatYearsToTimeframe(event.years),
+                description: event.description,
+                source: event.source + (event.confidence ? ` (${event.confidence} confidence)` : ''),
+                years: event.years
+            }));
+        }
+    }
+
+    // Fallback: Generate generic timeline without Wikipedia data
+    const formationTime = getEstimatedFormationTime(featureType, currentPlanet?.usgs_name);
+
+    return [
+        {
+            phase: 'Formation',
+            timeframe: formationTime,
+            description: `${featureType} formed through ${getFormationProcess(featureType)}`,
+            source: 'Estimated',
+            years: parseTimeframeToYears(formationTime)
+        },
+        {
+            phase: 'Current State',
+            timeframe: 'Present day',
+            description: `${featureType} with ${diameter ? diameter + ' km diameter' : 'unknown dimensions'}`,
+            source: 'USGS Data',
+            years: 0
+        }
+    ];
+}
+
+// Estimate formation time based on feature type and planet
+function getEstimatedFormationTime(featureType, planetName) {
+    const type = featureType.toLowerCase();
+
+    if (planetName === 'MOON') {
+        if (type.includes('mare')) return '~3.0-3.8 billion years ago';
+        if (type.includes('crater')) return '~0.1-4 billion years ago';
+        return '~3-4 billion years ago';
+    } else if (planetName === 'MARS') {
+        if (type.includes('mons') || type.includes('volcan')) return '~3.5 billion years ago';
+        if (type.includes('vallis') || type.includes('channel')) return '~3.5 billion years ago';
+        if (type.includes('crater')) return '~0.1-4 billion years ago';
+        return '~3-4 billion years ago';
+    }
+
+    return 'Ancient (billions of years ago)';
+}
+
+// Get formation process description
+function getFormationProcess(featureType) {
+    const type = featureType.toLowerCase();
+
+    if (type.includes('crater')) return 'meteorite impact';
+    if (type.includes('mons') || type.includes('tholus')) return 'volcanic activity';
+    if (type.includes('mare')) return 'ancient lava flows';
+    if (type.includes('vallis')) return 'water or lava erosion';
+    if (type.includes('chasma')) return 'tectonic activity';
+
+    return 'geological processes';
+}
+
+// Parse timeframe string to years ago (for graphing)
+function parseTimeframeToYears(timeframe) {
+    if (!timeframe || timeframe === 'Present day') return 0;
+
+    // Match patterns like "3.5 billion years ago", "~2 million years ago", "0.1-4 billion years ago"
+    const billionMatch = timeframe.match(/([\d.]+)(?:-[\d.]+)?\s*billion/i);
+    if (billionMatch) {
+        return parseFloat(billionMatch[1]) * 1e9;
+    }
+
+    const millionMatch = timeframe.match(/([\d.]+)(?:-[\d.]+)?\s*million/i);
+    if (millionMatch) {
+        return parseFloat(millionMatch[1]) * 1e6;
+    }
+
+    const thousandMatch = timeframe.match(/([\d.]+)(?:-[\d.]+)?\s*thousand/i);
+    if (thousandMatch) {
+        return parseFloat(thousandMatch[1]) * 1e3;
+    }
+
+    // Match "Ancient (billions of years ago)" - default to 4 billion
+    if (timeframe.toLowerCase().includes('ancient') || timeframe.toLowerCase().includes('billions of years ago')) {
+        return 4e9;
+    }
+
+    // Default to null for truly unparseable timeframes
+    return null;
+}
+
+// Format years for display
+function formatYears(years) {
+    if (years === 0) return 'Present';
+    if (years >= 1e9) return `${(years / 1e9).toFixed(2)} Bya`;
+    if (years >= 1e6) return `${(years / 1e6).toFixed(1)} Mya`;
+    if (years >= 1e3) return `${(years / 1e3).toFixed(0)} Kya`;
+    return `${years} years ago`;
+}
+
+// Format years to timeframe string (for structured data)
+function formatYearsToTimeframe(years) {
+    if (years === 0) return 'Present day';
+    if (years >= 1e9) {
+        const bya = (years / 1e9).toFixed(1);
+        return `${bya} billion years ago`;
+    }
+    if (years >= 1e6) {
+        const mya = (years / 1e6).toFixed(0);
+        return `${mya} million years ago`;
+    }
+    if (years >= 1e3) {
+        const kya = (years / 1e3).toFixed(0);
+        return `${kya} thousand years ago`;
+    }
+    return `${years} years ago`;
+}
+
+// Show feature details in sidebar with timeline
+async function showFeatureDetails(feature) {
+    // If in comparison mode, add to comparison list
+    if (comparisonMode) {
+        addToComparison(feature);
+        return;
+    }
+
+    const sidebar = document.getElementById('featureList');
     const props = feature.properties;
     const [lon, lat] = feature.geometry.coordinates;
 
-    nameEl.textContent = props.name || 'Unnamed Feature';
-
+    // Build basic info HTML
     let html = `
-        <p><strong>Type:</strong> ${props.featureType || 'Unknown'}</p>
-        <p><strong>Coordinates:</strong> ${lat.toFixed(2)}°, ${lon.toFixed(2)}°</p>
+        <div style="background: #0a0e27; padding: 1rem; border-radius: 4px; border: 2px solid #4a9eff; margin-bottom: 1rem;">
+            <h3 style="color: #4a9eff; margin-bottom: 1rem;">${props.name || 'Unnamed Feature'}</h3>
+            <p><strong>Type:</strong> ${props.featureType || 'Unknown'}</p>
+            <p><strong>Coordinates:</strong> ${lat.toFixed(2)}°, ${lon.toFixed(2)}°</p>
+            ${props.withinRegion ? `<p><strong>Located in:</strong> ${props.withinRegion}</p>` : ''}
+            ${props.diameter ? `<p><strong>Diameter:</strong> ${props.diameter} km</p>` : ''}
+            ${props.origin ? `<p><strong>Origin:</strong> ${props.origin}</p>` : ''}
+            ${props.approval_date ? `<p><strong>Approved:</strong> ${props.approval_date}</p>` : ''}
     `;
 
-    if (props.withinRegion) {
-        html += `<p><strong>Located in:</strong> ${props.withinRegion}</p>`;
+    // Check if notable and fetch timeline
+    if (isNotableFeature(feature)) {
+        const cacheKey = `${currentPlanet?.usgs_name}_${props.name}`;
+
+        // Show loading message
+        html += `<div id="timelineSection"><p style="margin-top: 1rem;"><strong>Timeline:</strong></p><p style="color: #aaa;">Loading timeline...</p></div>`;
+        html += `</div>`;
+
+        // Prepend to sidebar (show at top)
+        sidebar.innerHTML = html + sidebar.innerHTML;
+
+        // Check cache first
+        let timeline;
+        if (timelineCache[cacheKey]) {
+            timeline = timelineCache[cacheKey];
+        } else {
+            // Fetch from Wikipedia
+            const wikiData = await fetchWikipediaTimeline(props.name, currentPlanet?.usgs_name);
+            timeline = await generateTimeline(feature, wikiData);
+            timelineCache[cacheKey] = timeline;
+        }
+
+        // Display timeline
+        let timelineHTML = '<div id="timelineSection" style="margin-top: 1rem;"><p><strong>Timeline:</strong></p><ul style="margin-left: 1rem; margin-top: 0.5rem; list-style: none; padding: 0;">';
+        timeline.forEach(event => {
+            timelineHTML += `
+                <li style="margin-bottom: 0.75rem; padding: 0.5rem; background: #1a1f3a; border-radius: 4px; border-left: 3px solid #4a9eff;">
+                    <strong style="color: #4a9eff;">${event.phase}</strong><br>
+                    <span style="color: #fff; font-size: 0.85rem;">${event.timeframe}</span><br>
+                    <span style="font-size: 0.85rem; color: #ccc;">${event.description}</span><br>
+                    <span style="font-size: 0.75rem; color: #888;">Source: ${event.source}</span>
+                    ${event.url ? `<br><a href="${event.url}" target="_blank" style="font-size: 0.75rem; color: #4a9eff;">Read more →</a>` : ''}
+                </li>
+            `;
+        });
+        timelineHTML += '</ul></div></div>';
+
+        // Update the timeline section
+        const timelineSection = document.getElementById('timelineSection');
+        if (timelineSection) {
+            timelineSection.outerHTML = timelineHTML;
+        }
+    } else {
+        html += `</div>`;
+        // Prepend to sidebar (show at top)
+        sidebar.innerHTML = html + sidebar.innerHTML;
     }
 
-    html += `
-        ${props.diameter ? `<p><strong>Diameter:</strong> ${props.diameter} km</p>` : ''}
-        ${props.origin ? `<p><strong>Origin:</strong> ${props.origin}</p>` : ''}
-        ${props.approval_date ? `<p><strong>Approved:</strong> ${props.approval_date}</p>` : ''}
+    // Scroll to top of sidebar
+    sidebar.scrollTop = 0;
+}
+
+// Toggle comparison mode
+function toggleComparisonMode() {
+    comparisonMode = !comparisonMode;
+    const btn = document.getElementById('compareBtn');
+    const panel = document.getElementById('comparisonPanel');
+
+    if (comparisonMode) {
+        // Clear timeline cache when entering comparison mode
+        timelineCache = {};
+
+        btn.classList.add('active');
+        btn.textContent = 'Cancel Comparison';
+        comparisonFeatures = [];
+
+        // Clear any existing highlights
+        featureMarkers.forEach(marker => {
+            marker.setStyle({
+                fillColor: '#4a9eff',
+                radius: 4
+            });
+        });
+
+        // Show comparison panel
+        panel.classList.remove('hidden');
+        updateComparisonPanel();
+    } else {
+        btn.classList.remove('active');
+        btn.textContent = 'Compare Features';
+        comparisonFeatures = [];
+
+        // Clear visual indicators
+        featureMarkers.forEach(marker => {
+            marker.setStyle({
+                fillColor: '#4a9eff',
+                radius: 4
+            });
+        });
+
+        // Hide comparison panel
+        panel.classList.add('hidden');
+    }
+}
+
+// Update comparison panel UI
+function updateComparisonPanel() {
+    const countEl = document.getElementById('comparisonCount');
+    const selectionsEl = document.getElementById('comparisonSelections');
+    const compareBtn = document.getElementById('compareNowBtn');
+
+    if (countEl) {
+        countEl.textContent = comparisonFeatures.length;
+    }
+
+    if (selectionsEl) {
+        if (comparisonFeatures.length === 0) {
+            selectionsEl.innerHTML = '';
+        } else {
+            selectionsEl.innerHTML = comparisonFeatures.map((f, idx) => {
+                const color = idx === 0 ? '#4a9eff' : '#ff9d4a';
+                return `
+                    <div class="comparison-selection-item">
+                        <div class="comparison-color-dot" style="background: ${color};"></div>
+                        <div>
+                            <div class="comparison-selection-name">${f.properties.name}</div>
+                            <div class="comparison-selection-type">${f.properties.featureType}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+
+    // Show/hide compare button
+    if (compareBtn) {
+        if (comparisonFeatures.length === 2) {
+            compareBtn.classList.remove('hidden');
+        } else {
+            compareBtn.classList.add('hidden');
+        }
+    }
+}
+
+// Add feature to comparison
+async function addToComparison(feature) {
+    // Check if feature is notable
+    if (!isNotableFeature(feature)) {
+        alert('Please select notable features with timeline data for comparison.');
+        return;
+    }
+
+    // Check if already selected
+    if (comparisonFeatures.find(f => f.properties.name === feature.properties.name)) {
+        alert('This feature is already selected for comparison.');
+        return;
+    }
+
+    // Add to comparison list
+    comparisonFeatures.push(feature);
+
+    // Update visual indicator for this feature's marker
+    const [lon, lat] = feature.geometry.coordinates;
+    featureMarkers.forEach(marker => {
+        const markerLatLng = marker.getLatLng();
+        if (Math.abs(markerLatLng.lat - lat) < 0.001 && Math.abs(markerLatLng.lng - lon) < 0.001) {
+            const color = comparisonFeatures.length === 1 ? '#4a9eff' : '#ff9d4a';
+            marker.setStyle({
+                fillColor: color,
+                radius: 8,
+                weight: 2
+            });
+        }
+    });
+
+    // Update comparison panel
+    updateComparisonPanel();
+
+    // If we have 2 features, they can now click Compare Now button
+    // Auto-compare removed - let user click the button
+}
+
+// Show side-by-side comparison of two features
+async function showComparison() {
+    // Hide comparison panel
+    const panel = document.getElementById('comparisonPanel');
+    if (panel) {
+        panel.classList.add('hidden');
+    }
+
+    const sidebar = document.getElementById('featureList');
+    const feature1 = comparisonFeatures[0];
+    const feature2 = comparisonFeatures[1];
+
+    sidebar.innerHTML = `
+        <div style="background: #9d4edd; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            <h3 style="color: #fff; margin-bottom: 0.5rem;">Comparing Timelines</h3>
+            <button onclick="toggleComparisonMode()" style="background: #fff; color: #9d4edd; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-weight: 600; margin-top: 0.5rem;">New Comparison</button>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 1rem;">
+            <div id="comparison1" style="background: #0a0e27; padding: 0.75rem; border-radius: 4px; border: 2px solid #4a9eff;">
+                <h4 style="color: #4a9eff; font-size: 0.9rem; margin-bottom: 0.5rem;">${feature1.properties.name}</h4>
+                <p style="font-size: 0.75rem; color: #aaa;">Loading...</p>
+            </div>
+            <div id="comparison2" style="background: #0a0e27; padding: 0.75rem; border-radius: 4px; border: 2px solid #ff9d4a;">
+                <h4 style="color: #ff9d4a; font-size: 0.9rem; margin-bottom: 0.5rem;">${feature2.properties.name}</h4>
+                <p style="font-size: 0.75rem; color: #aaa;">Loading...</p>
+            </div>
+        </div>
+        <div id="timelineComparison"></div>
     `;
 
-    infoEl.innerHTML = html;
-    panel.classList.remove('hidden');
+    // Fetch timelines for both features
+    const cacheKey1 = `${currentPlanet?.usgs_name}_${feature1.properties.name}`;
+    const cacheKey2 = `${currentPlanet?.usgs_name}_${feature2.properties.name}`;
+
+    let timeline1 = timelineCache[cacheKey1];
+    if (!timeline1) {
+        const wikiData1 = await fetchWikipediaTimeline(feature1.properties.name, currentPlanet?.usgs_name);
+        timeline1 = await generateTimeline(feature1, wikiData1);
+        timelineCache[cacheKey1] = timeline1;
+    }
+
+    let timeline2 = timelineCache[cacheKey2];
+    if (!timeline2) {
+        const wikiData2 = await fetchWikipediaTimeline(feature2.properties.name, currentPlanet?.usgs_name);
+        timeline2 = await generateTimeline(feature2, wikiData2);
+        timelineCache[cacheKey2] = timeline2;
+    }
+
+    // Check if elements still exist after async operations
+    const comp1 = document.getElementById('comparison1');
+    const comp2 = document.getElementById('comparison2');
+    const timelineComparisonEl = document.getElementById('timelineComparison');
+
+    if (!comp1 || !comp2 || !timelineComparisonEl) {
+        console.warn('Comparison was cancelled or sidebar was replaced during loading');
+        return;
+    }
+
+    comp1.innerHTML = `
+        <h4 style="color: #4a9eff; font-size: 0.9rem; margin-bottom: 0.5rem;">${feature1.properties.name}</h4>
+        <p style="font-size: 0.75rem;"><strong>Type:</strong> ${feature1.properties.featureType}</p>
+        ${feature1.properties.diameter ? `<p style="font-size: 0.75rem;"><strong>Diameter:</strong> ${feature1.properties.diameter} km</p>` : ''}
+    `;
+
+    comp2.innerHTML = `
+        <h4 style="color: #ff9d4a; font-size: 0.9rem; margin-bottom: 0.5rem;">${feature2.properties.name}</h4>
+        <p style="font-size: 0.75rem;"><strong>Type:</strong> ${feature2.properties.featureType}</p>
+        ${feature2.properties.diameter ? `<p style="font-size: 0.75rem;"><strong>Diameter:</strong> ${feature2.properties.diameter} km</p>` : ''}
+    `;
+
+    // Filter out events with null years (events should already have years property)
+    const validEvents1 = timeline1.filter(e => e.years !== null && e.years !== undefined);
+    const validEvents2 = timeline2.filter(e => e.years !== null && e.years !== undefined);
+
+    // Debug: log timeframes and parsed values
+    console.log('Feature 1 timeline:', timeline1);
+    console.log('Feature 1 valid events:', validEvents1);
+    console.log('Feature 2 timeline:', timeline2);
+    console.log('Feature 2 valid events:', validEvents2);
+
+    // Fixed scale: Solar system formation (4.5 Bya) to Present
+    const maxAge = 4.5e9; // 4.5 billion years
+    const minAge = 0; // Present day
+
+    console.log('All years:', [...validEvents1.map(e => e.years), ...validEvents2.map(e => e.years)]);
+
+    // Create horizontal timeline graph
+    let comparisonHTML = '<div style="margin-bottom: 1rem;">';
+    comparisonHTML += '<h4 style="color: #fff; font-size: 0.9rem; margin-bottom: 1rem;">Timeline Comparison</h4>';
+
+    // Horizontal timeline
+    const graphWidth = 100; // percentage
+    const graphHeight = 300;
+    comparisonHTML += `<div style="position: relative; height: ${graphHeight}px; background: #0a0e27; border-radius: 4px; padding: 2rem 1rem; margin-bottom: 1rem; overflow-x: auto;">`;
+
+    // Time axis labels (bottom)
+    const numLabels = 5;
+    for (let i = 0; i <= numLabels; i++) {
+        const years = maxAge * ((numLabels - i) / numLabels); // Reverse: left = old, right = present
+        const position = (i / numLabels) * 100;
+        comparisonHTML += `
+            <div style="position: absolute; left: ${position}%; bottom: 10px; font-size: 0.7rem; color: #888; transform: translateX(-50%);">
+                ${formatYears(years)}
+            </div>
+            <div style="position: absolute; left: ${position}%; top: 30px; bottom: 40px; width: 1px; background: #2a3f5f;"></div>
+        `;
+    }
+
+    // Center horizontal axis line
+    comparisonHTML += `<div style="position: absolute; left: 0; right: 0; top: 50%; height: 2px; background: #2a3f5f; transform: translateY(-50%);"></div>`;
+
+    // Plot Feature 1 events (top half)
+    validEvents1.forEach(event => {
+        const position = ((maxAge - event.years) / maxAge) * 100; // Left = old, right = present
+        comparisonHTML += `
+            <div style="position: absolute; left: ${position}%; top: 30px; transform: translateX(-50%); z-index: 10; max-width: 150px;">
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem;">
+                    <div style="background: #1a1f3a; padding: 0.5rem; border-radius: 4px; border: 1px solid #4a9eff; text-align: center;">
+                        <div style="font-size: 0.75rem; color: #4a9eff; font-weight: 600; margin-bottom: 0.25rem;">${event.phase}</div>
+                        <div style="font-size: 0.65rem; color: #aaa;">${event.timeframe}</div>
+                    </div>
+                    <div style="width: 2px; height: 20px; background: #4a9eff;"></div>
+                    <div style="width: 14px; height: 14px; background: #4a9eff; border: 2px solid #fff; border-radius: 50%;"></div>
+                </div>
+            </div>
+        `;
+    });
+
+    // Plot Feature 2 events (bottom half)
+    validEvents2.forEach(event => {
+        const position = ((maxAge - event.years) / maxAge) * 100; // Left = old, right = present
+        comparisonHTML += `
+            <div style="position: absolute; left: ${position}%; bottom: 50px; transform: translateX(-50%); z-index: 10; max-width: 150px;">
+                <div style="display: flex; flex-direction: column-reverse; align-items: center; gap: 0.5rem;">
+                    <div style="background: #1a1f3a; padding: 0.5rem; border-radius: 4px; border: 1px solid #ff9d4a; text-align: center;">
+                        <div style="font-size: 0.75rem; color: #ff9d4a; font-weight: 600; margin-bottom: 0.25rem;">${event.phase}</div>
+                        <div style="font-size: 0.65rem; color: #aaa;">${event.timeframe}</div>
+                    </div>
+                    <div style="width: 2px; height: 20px; background: #ff9d4a;"></div>
+                    <div style="width: 14px; height: 14px; background: #ff9d4a; border: 2px solid #fff; border-radius: 50%;"></div>
+                </div>
+            </div>
+        `;
+    });
+
+    comparisonHTML += '</div>'; // Close graph container
+
+    // Legend
+    comparisonHTML += `
+        <div style="display: flex; gap: 1rem; justify-content: center; font-size: 0.8rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <div style="width: 12px; height: 12px; background: #4a9eff; border-radius: 50%;"></div>
+                <span>${feature1.properties.name}</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <div style="width: 12px; height: 12px; background: #ff9d4a; border-radius: 50%;"></div>
+                <span>${feature2.properties.name}</span>
+            </div>
+        </div>
+    `;
+
+    comparisonHTML += '</div>';
+
+    // Final check before rendering
+    const finalCheck = document.getElementById('timelineComparison');
+    if (!finalCheck) {
+        console.warn('Comparison was cancelled before rendering timeline');
+        return;
+    }
+
+    finalCheck.innerHTML = comparisonHTML;
+
+    // Exit comparison mode (but don't clear features - user might want to see the result)
+    comparisonMode = false;
+    const compareBtn = document.getElementById('compareBtn');
+    if (compareBtn) {
+        compareBtn.classList.remove('active');
+        compareBtn.textContent = 'Compare Features';
+    }
 }
 
 // Search features by name
@@ -512,45 +1236,62 @@ function getTileBounds(x, y, z) {
     };
 }
 
-// Handle tile selection on map click
-function handleTileSelection(e) {
+// Start rectangle selection on map click
+function startRectangleSelection(e) {
     if (!currentPlanet) return;
 
     const { lat, lng } = e.latlng;
-    const zoom = map.getZoom();
-
-    // Calculate tile coordinates
-    const tile = getTileCoordinates(lat, lng, zoom);
-    const bounds = getTileBounds(tile.x, tile.y, tile.z);
-
-    // Store selected tile
-    selectedTileBounds = bounds;
 
     // Remove previous tile bounds layer
     if (tileBoundsLayer) {
+        tileBoundsLayer.disableEdit();
         map.removeLayer(tileBoundsLayer);
     }
 
-    // Draw tile bounds rectangle
-    tileBoundsLayer = L.rectangle(
-        [[bounds.south, bounds.west], [bounds.north, bounds.east]],
-        {
-            color: '#4a9eff',
-            weight: 3,
-            fillColor: '#4a9eff',
-            fillOpacity: 0.2,
-            dashArray: '10, 5'
-        }
-    ).addTo(map);
+    // Create initial rectangle with small default size
+    const defaultSize = 10; // degrees
+    const bounds = [
+        [Math.max(lat - defaultSize / 2, -90), Math.max(lng - defaultSize / 2, -180)],
+        [Math.min(lat + defaultSize / 2, 90), Math.min(lng + defaultSize / 2, 180)]
+    ];
 
-    // Show tile info
-    displayTileInfo(tile, bounds);
+    // Create editable rectangle
+    tileBoundsLayer = L.rectangle(bounds, {
+        color: '#4a9eff',
+        weight: 3,
+        fillColor: '#4a9eff',
+        fillOpacity: 0.2,
+        dashArray: '10, 5'
+    }).addTo(map);
 
-    // Filter features by tile bounds
-    filterFeaturesByTile(bounds);
+    // Enable editing (dragging and resizing)
+    tileBoundsLayer.enableEdit();
+
+    // Update bounds when rectangle is edited
+    tileBoundsLayer.on('editable:vertex:dragend', updateRectangleBounds);
+    tileBoundsLayer.on('editable:dragend', updateRectangleBounds);
+
+    // Initial update
+    updateRectangleBounds();
 
     // Show clear button
     document.getElementById('clearTileBtn').classList.remove('hidden');
+}
+
+// Update bounds when rectangle is dragged or resized
+function updateRectangleBounds() {
+    const latLngBounds = tileBoundsLayer.getBounds();
+
+    selectedTileBounds = {
+        north: latLngBounds.getNorth(),
+        south: latLngBounds.getSouth(),
+        east: latLngBounds.getEast(),
+        west: latLngBounds.getWest()
+    };
+
+    // Update info and filter features
+    displayRectangleInfo(selectedTileBounds);
+    filterFeaturesByTile(selectedTileBounds);
 }
 
 // Check if two bounding boxes intersect
@@ -572,16 +1313,17 @@ function findIntersectingGeographicFeatures(tileBounds) {
     );
 }
 
-// Display tile information
-function displayTileInfo(tile, bounds) {
+// Display rectangle information
+function displayRectangleInfo(bounds) {
     const tileInfo = document.getElementById('tileInfo');
 
     // Find intersecting large features
     const largeFeatures = findIntersectingGeographicFeatures(bounds);
 
     let html = `
-        <p><strong>Tile:</strong> z=${tile.z}, x=${tile.x}, y=${tile.y}</p>
+        <p><strong>Selection Area</strong></p>
         <p><strong>Bounds:</strong> ${bounds.north.toFixed(2)}°N to ${bounds.south.toFixed(2)}°S, ${bounds.west.toFixed(2)}°W to ${bounds.east.toFixed(2)}°E</p>
+        <p style="font-size: 0.85rem; color: #aaa;">Drag to move, resize handles to adjust</p>
     `;
 
     if (largeFeatures.length > 0) {
@@ -644,6 +1386,7 @@ function filterFeaturesByTile(bounds) {
 function clearTileSelection() {
     // Remove tile bounds layer
     if (tileBoundsLayer) {
+        tileBoundsLayer.disableEdit();
         map.removeLayer(tileBoundsLayer);
         tileBoundsLayer = null;
     }
@@ -662,7 +1405,7 @@ function clearTileSelection() {
 
     // Reset to initial state
     const sidebar = document.getElementById('featureList');
-    sidebar.innerHTML = `<div class="loading">Click a tile to view features in that area, or use search above.</div>`;
+    sidebar.innerHTML = `<div class="loading">Click the map to create a selection area, or use search above.</div>`;
 }
 
 // Set up event listeners
@@ -679,11 +1422,18 @@ function setupEventListeners() {
         }
     });
 
-    document.getElementById('closeDetails').addEventListener('click', () => {
-        document.getElementById('featureDetails').classList.add('hidden');
-    });
+    document.getElementById('compareBtn').addEventListener('click', toggleComparisonMode);
 
     document.getElementById('clearTileBtn').addEventListener('click', clearTileSelection);
+
+    // Comparison panel buttons
+    document.getElementById('cancelComparison').addEventListener('click', toggleComparisonMode);
+
+    document.getElementById('compareNowBtn').addEventListener('click', async () => {
+        if (comparisonFeatures.length === 2) {
+            await showComparison();
+        }
+    });
 }
 
 // Start the application
