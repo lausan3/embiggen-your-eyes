@@ -53,28 +53,21 @@ export default function FeatureComparison({ features, onClose, onRemoveFeature }
       return {
         maxAge: 4.5e9,
         minAge: 1e6,
-        majorTicks: [4e9, 3e9, 2e9, 1e9, 500e6, 100e6, 10e6, 1e6, 0]
+        majorTicks: [4e9, 2e9, 500e6, 66e6, 0] // Much fewer ticks
       }
     }
     
     const maxAge = Math.max(...ages, 4.5e9) // Ensure we show full geological time
     const minAge = Math.min(...ages, 1e6)   // Minimum 1 million years for log scale
     
-    // Generate meaningful time markers based on geological periods
+    // Generate fewer, strategic time markers to prevent overlap
     const majorTicks = [
-      4.5e9,  // Formation of Earth
-      4e9,    // Late Heavy Bombardment
-      3.8e9,  // First life
-      3e9,    // Archean
-      2.5e9,  // Great Oxidation
+      4e9,    // Early Earth
       2e9,    // Proterozoic
-      1e9,    // Multicellular life
-      541e6,  // Cambrian explosion
-      252e6,  // Permian extinction
-      66e6,   // K-Pg extinction (dinosaurs)
-      2.6e6,  // Quaternary period
+      500e6,  // Cambrian
+      66e6,   // K-Pg extinction
       0       // Present
-    ].filter(age => age <= maxAge && age >= minAge / 10)
+    ].filter(age => age <= maxAge)
     
     return { maxAge, minAge, majorTicks }
   }, [allEvents])
