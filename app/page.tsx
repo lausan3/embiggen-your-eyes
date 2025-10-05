@@ -145,6 +145,7 @@ export default function PlanetaryExplorer() {
               onFeatureClick={(feature) => {
                 setSelectedFeature(feature)
                 setIsRotating(true)
+                setShowDetails(false) // Close details modal when clicking a new feature
               }}
               searchQuery={searchQuery}
               selectedFeature={selectedFeature}
@@ -154,6 +155,7 @@ export default function PlanetaryExplorer() {
                   setIsRotating(false)
                 }
               }}
+              showDetailsModal={showDetails}
             />
           ) : (
             <div className="h-full flex items-center justify-center" style={{ background: "var(--color-surface)" }}>

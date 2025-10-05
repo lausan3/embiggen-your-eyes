@@ -22,7 +22,7 @@ export const PLANETARY_CONFIG: Record<string, PlanetaryConfig> = {
     maxZoom: 8,
     usgs_name: "Moon",
     kmz_url: "data/MOON_nomenclature_center_pts.kmz",
-    textureUrl: "https://cors-anywhere.herokuapp.com/https://www.solarsystemscope.com/textures/download/2k_moon.jpg",
+    textureUrl: "/moon-surface-texture-realistic-gray-craters.jpg",
     fallbackColor: "#8a8a8a",
   },
   Mars: {

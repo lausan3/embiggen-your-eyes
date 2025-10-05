@@ -2,7 +2,7 @@
 
 import React, { useRef, useMemo, useState, useEffect, type ErrorInfo } from "react"
 import { Canvas, useFrame } from "@react-three/fiber"
-import { OrbitControls, Html, Stars } from "@react-three/drei"
+import { OrbitControls, Html, Stars, useTexture } from "@react-three/drei"
 import * as THREE from "three"
 import { latLonToVector3 } from "@/lib/utils/coordinates"
 import { PLANETARY_CONFIG as CONFIG } from "@/lib/config"
@@ -51,21 +51,32 @@ interface Globe3DProps {
   onFeatureClick: (feature: FamousFeature) => void
   searchQuery: string
   selectedFeature: FamousFeature | null
-  onRotationComplete?: () => void
+  onRotationComplete?: () => void // Added callback for when rotation animation completes
+  showDetailsModal?: boolean // Added to know when details modal is open
 }
 
 const FeatureMarker = React.memo(function FeatureMarker({
   feature,
   onClick,
   isHighlighted,
+  showDetailsModal,
 }: {
   feature: FamousFeature
   onClick: () => void
   isHighlighted: boolean
+  showDetailsModal?: boolean
 }) {
   const meshRef = useRef<THREE.Mesh>(null)
   const [hovered, setHovered] = useState(false)
 
+  useEffect(() => {
+    if (showDetailsModal) {
+      setHovered(false)
+      document.body.style.cursor = "auto"
+    }
+  }, [showDetailsModal])
+
+  // Convert lat/lon to 3D position
   const position = useMemo(() => {
     const pos = latLonToVector3(feature.lat, feature.lon, 2.1)
     return [pos.x, pos.y, pos.z] as [number, number, number]
@@ -78,6 +89,11 @@ const FeatureMarker = React.memo(function FeatureMarker({
     }
   })
 
+  const handlePointerOut = () => {
+    setHovered(false)
+    document.body.style.cursor = "auto"
+  }
+
   return (
     <group position={position}>
       <mesh
@@ -88,19 +104,19 @@ const FeatureMarker = React.memo(function FeatureMarker({
         }}
         onPointerOver={(e) => {
           e.stopPropagation()
-          setHovered(true)
-          document.body.style.cursor = "pointer"
+          if (!showDetailsModal) {
+            setHovered(true)
+            document.body.style.cursor = "pointer"
+          }
         }}
-        onPointerOut={() => {
-          setHovered(false)
-          document.body.style.cursor = "auto"
-        }}
+        onPointerOut={handlePointerOut}
+        onPointerLeave={handlePointerOut}
       >
-        <sphereGeometry args={[0.02, 16, 16]} />
-        <meshBasicMaterial color={isHighlighted ? "#FFD700" : "#D4A574"} />
+        <sphereGeometry args={[0.05, 16, 16]} />
+        <meshBasicMaterial color={isHighlighted ? "#00FFFF" : "#FFFF00"} />
       </mesh>
-      {(hovered || isHighlighted) && (
-        <Html distanceFactor={10} position={[0, 0.05, 0]}>
+      {(hovered || isHighlighted) && !showDetailsModal && (
+        <Html distanceFactor={10} position={[0, 0.1, 0]}>
           <div
             className="px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap pointer-events-none"
             style={{
@@ -118,109 +134,154 @@ const FeatureMarker = React.memo(function FeatureMarker({
   )
 })
 
+const GridLines = React.memo(function GridLines() {
+  const gridGeometry = useMemo(() => {
+    const geometry = new THREE.BufferGeometry()
+    const vertices: number[] = []
+    const radius = 2.02 // Slightly larger than planet radius
+
+    // Latitude lines (horizontal circles)
+    for (let lat = -80; lat <= 80; lat += 20) {
+      const theta = THREE.MathUtils.degToRad(90 - lat)
+      const circleRadius = radius * Math.sin(theta)
+      const y = radius * Math.cos(theta)
+
+      for (let i = 0; i <= 64; i++) {
+        const angle = (i / 64) * Math.PI * 2
+        vertices.push(circleRadius * Math.cos(angle), y, circleRadius * Math.sin(angle))
+      }
+    }
+
+    // Longitude lines (vertical circles)
+    for (let lon = 0; lon < 360; lon += 30) {
+      const phi = THREE.MathUtils.degToRad(lon)
+      for (let i = 0; i <= 64; i++) {
+        const theta = (i / 64) * Math.PI
+        vertices.push(
+          radius * Math.sin(theta) * Math.cos(phi),
+          radius * Math.cos(theta),
+          radius * Math.sin(theta) * Math.sin(phi),
+        )
+      }
+    }
+
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3))
+    return geometry
+  }, [])
+
+  return (
+    <lineSegments geometry={gridGeometry}>
+      <lineBasicMaterial color="#FFD700" opacity={0.8} transparent linewidth={2} />
+    </lineSegments>
+  )
+})
+
 const PlanetSphere = React.memo(function PlanetSphere({
   planet,
   textureUrl,
   fallbackColor,
   selectedFeature,
   onRotationComplete,
+  features,
+  onFeatureClick,
+  searchQuery,
+  showDetailsModal,
 }: {
   planet: string
   textureUrl: string
   fallbackColor: string
   selectedFeature: FamousFeature | null
   onRotationComplete?: () => void
+  features: FamousFeature[]
+  onFeatureClick: (feature: FamousFeature) => void
+  searchQuery: string
+  showDetailsModal?: boolean
 }) {
-  const meshRef = useRef<THREE.Mesh>(null)
-  const [textureLoaded, setTextureLoaded] = useState(false)
-  const [loadedTexture, setLoadedTexture] = useState<THREE.Texture | null>(null)
+  const groupRef = useRef<THREE.Group>(null)
   const targetRotation = useRef<{ x: number; y: number } | null>(null)
   const hasNotifiedCompletion = useRef(false)
+  const texture = useTexture(textureUrl)
 
-  // FIXED: Moved texture loading to useEffect
   useEffect(() => {
-    console.log(`[v0] ========================================`)
-    console.log(`[v0] Loading texture for ${planet}`)
-    console.log(`[v0] URL being loaded: ${textureUrl}`)
-    console.log(`[v0] ========================================`)
-
-    const loader = new THREE.TextureLoader()
-    loader.load(
-      textureUrl,
-      (texture) => {
-        console.log(`[v0] ✓ Successfully loaded texture for ${planet}`)
-        texture.anisotropy = 16
-        texture.minFilter = THREE.LinearMipmapLinearFilter
-        texture.magFilter = THREE.LinearFilter
-        texture.generateMipmaps = true
-        texture.needsUpdate = true
-        setLoadedTexture(texture)
-        setTextureLoaded(true)
-      },
-      undefined,
-      (error) => {
-        console.warn(`[v0] ✗ Failed to load texture for ${planet}`)
-        console.log(`[v0] Error details:`, error)
-        console.log(`[v0] Using fallback color: ${fallbackColor}`)
-        setTextureLoaded(false)
-        setLoadedTexture(null)
-      },
-    )
-
-    return () => {
-      if (loadedTexture) {
-        loadedTexture.dispose()
-      }
+    if (texture) {
+      texture.anisotropy = 16
+      texture.minFilter = THREE.LinearMipmapLinearFilter
+      texture.magFilter = THREE.LinearFilter
+      texture.wrapS = THREE.RepeatWrapping
+      texture.wrapT = THREE.ClampToEdgeWrapping
     }
-  }, [textureUrl, planet, fallbackColor])
+  }, [texture])
 
   useEffect(() => {
-    if (selectedFeature && meshRef.current) {
+    if (selectedFeature && groupRef.current) {
       hasNotifiedCompletion.current = false
       const lon = THREE.MathUtils.degToRad(selectedFeature.lon)
       const lat = THREE.MathUtils.degToRad(selectedFeature.lat)
+
+      // to bring it to face the camera (which is on +Z axis)
       targetRotation.current = {
-        x: lat,
-        y: -lon + Math.PI / 2,
+        x: -lat, // Negative to rotate globe opposite to latitude
+        y: -lon, // Negative to rotate globe opposite to longitude
       }
     }
   }, [selectedFeature])
 
   useFrame(() => {
-    if (meshRef.current) {
-      if (targetRotation.current) {
-        meshRef.current.rotation.x += (targetRotation.current.x - meshRef.current.rotation.x) * 0.05
-        meshRef.current.rotation.y += (targetRotation.current.y - meshRef.current.rotation.y) * 0.05
+    if (!groupRef.current) return
 
-        const diffX = Math.abs(targetRotation.current.x - meshRef.current.rotation.x)
-        const diffY = Math.abs(targetRotation.current.y - meshRef.current.rotation.y)
+    if (targetRotation.current) {
+      groupRef.current.rotation.x += (targetRotation.current.x - groupRef.current.rotation.x) * 0.05
+      groupRef.current.rotation.y += (targetRotation.current.y - groupRef.current.rotation.y) * 0.05
 
-        if (diffX < 0.01 && diffY < 0.01) {
-          targetRotation.current = null
-          if (!hasNotifiedCompletion.current && onRotationComplete) {
-            hasNotifiedCompletion.current = true
-            onRotationComplete()
-          }
+      const diffX = Math.abs(targetRotation.current.x - groupRef.current.rotation.x)
+      const diffY = Math.abs(targetRotation.current.y - groupRef.current.rotation.y)
+
+      if (diffX < 0.01 && diffY < 0.01) {
+        targetRotation.current = null
+        if (!hasNotifiedCompletion.current && onRotationComplete) {
+          hasNotifiedCompletion.current = true
+          onRotationComplete()
         }
-      } else {
-        meshRef.current.rotation.y += 0.001
       }
     }
+    // else {
+    //   groupRef.current.rotation.y += 0.005
+    // }
   })
 
+  const filteredFeatures = useMemo(() => {
+    if (!searchQuery) return features
+    return features.filter(
+      (f) =>
+        f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        f.type.toLowerCase().includes(searchQuery.toLowerCase()),
+    )
+  }, [features, searchQuery])
+
   return (
-    <mesh ref={meshRef}>
-      <sphereGeometry args={[2, 128, 128]} />
-      <meshStandardMaterial
-        map={loadedTexture}
-        roughness={textureLoaded ? 0.95 : 0.8}
-        metalness={0.0}
-        color={textureLoaded ? undefined : fallbackColor}
-        emissive={textureLoaded ? "#000000" : fallbackColor}
-        emissiveIntensity={textureLoaded ? 0 : 0.15}
-        displacementScale={0}
-      />
-    </mesh>
+    <group ref={groupRef}>
+      <mesh>
+        <sphereGeometry args={[2, 128, 128]} />
+        <meshStandardMaterial
+          map={texture}
+          color="#ffffff"
+          roughness={0.9}
+          metalness={0.1}
+          emissive="#111111"
+          emissiveIntensity={0.2}
+        />
+      </mesh>
+      <GridLines />
+      {filteredFeatures.map((feature, index) => (
+        <FeatureMarker
+          key={`${planet}-${feature.name}-${index}`}
+          feature={feature}
+          onClick={() => onFeatureClick(feature)}
+          isHighlighted={selectedFeature === feature}
+          showDetailsModal={showDetailsModal}
+        />
+      ))}
+    </group>
   )
 })
 
@@ -231,6 +292,7 @@ const Scene = React.memo(function Scene({
   searchQuery,
   selectedFeature,
   onRotationComplete,
+  showDetailsModal,
 }: Globe3DProps) {
   const config = CONFIG[planet]
 
@@ -253,12 +315,11 @@ const Scene = React.memo(function Scene({
 
   return (
     <>
-      {/* FIXED: Reduced light intensity */}
-      <ambientLight intensity={0.4} />
-      <directionalLight position={[10, 10, 5]} intensity={1.0} castShadow />
-      <directionalLight position={[-10, -10, -5]} intensity={0.3} />
-      <pointLight position={[5, 0, 5]} intensity={0.3} />
-      <hemisphereLight intensity={0.3} groundColor="#0a0a0a" />
+      <ambientLight intensity={1.8} />
+      <directionalLight position={[10, 10, 5]} intensity={2.5} castShadow />
+      <directionalLight position={[-10, -10, -5]} intensity={1.5} />
+      <pointLight position={[5, 0, 5]} intensity={1.2} />
+      <hemisphereLight intensity={1.0} groundColor="#1a1a1a" />
 
       <PlanetSphere
         planet={planet}
@@ -266,16 +327,11 @@ const Scene = React.memo(function Scene({
         fallbackColor={fallbackColor}
         selectedFeature={selectedFeature}
         onRotationComplete={onRotationComplete}
+        features={features}
+        onFeatureClick={onFeatureClick}
+        searchQuery={searchQuery}
+        showDetailsModal={showDetailsModal}
       />
-
-      {filteredFeatures.map((feature, index) => (
-        <FeatureMarker
-          key={`${planet}-${feature.name}-${index}`}
-          feature={feature}
-          onClick={() => onFeatureClick(feature)}
-          isHighlighted={selectedFeature === feature}
-        />
-      ))}
 
       <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
 
@@ -299,6 +355,7 @@ const Globe3D = React.memo(function Globe3D({
   searchQuery,
   selectedFeature,
   onRotationComplete,
+  showDetailsModal,
 }: Globe3DProps) {
   return (
     <ErrorBoundary>
@@ -319,6 +376,7 @@ const Globe3D = React.memo(function Globe3D({
             searchQuery={searchQuery}
             selectedFeature={selectedFeature}
             onRotationComplete={onRotationComplete}
+            showDetailsModal={showDetailsModal}
           />
         </Canvas>
       </div>

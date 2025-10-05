@@ -140,7 +140,7 @@ export default function MapComponent({ planet, searchQuery, onFeatureSelect, onS
     })
 
     // Add markers for filtered features
-    filteredFeatures.forEach((feature) => {
+    filteredFeatures.forEach((feature: any) => {
       const marker = L.marker([feature.lat, feature.lon], { icon: customIcon })
         .addTo(mapRef.current!)
         .bindTooltip(feature.name, {
